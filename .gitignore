@@ -1,0 +1,25 @@
+# 忽略检查点文件夹
+checkpoints/
+
+# 忽视ewc参数文件
+ewc_params/
+
+# 忽略 Python 编译后的文件
+*.pyc
+
+# 忽略 PyCharm 项目文件
+.idea/
+
+# 忽视log
+*.log
+log/
+
+# 忽视图片文件
+*.png
+*.jpg
+*.jpeg
+
+# 忽视数据
+data/
+
+**/__pycache__/
