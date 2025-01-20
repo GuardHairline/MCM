@@ -20,9 +20,8 @@ class BaseMultimodalModel(nn.Module):
         """
         super().__init__()
 
-        # 文本编码器 (BERT)
+        # 文本编码器 (DeBERTa)
         self.text_encoder = AutoModel.from_pretrained(text_model_name)
-        # 输出维度通常可由config.hidden_size获得
         self.text_hidden_size = self.text_encoder.config.hidden_size
 
         # 图像编码器 (ResNet)
@@ -37,7 +36,7 @@ class BaseMultimodalModel(nn.Module):
         # 如果需要进一步融合，可再定义一个 cross-attention 或者简单 linear
         self.fusion_strategy = multimodal_fusion
         if self.fusion_strategy == "concat":
-            self.fusion_output_dim = self.text_hidden_size + self.text_hidden_size
+            self.fusion_output_dim = self.text_hidden_size * 2
         elif self.fusion_strategy == "multi_head_attention":
             self.fusion_output_dim = self.text_hidden_size
             # 定义multi-head attention层
@@ -45,10 +44,16 @@ class BaseMultimodalModel(nn.Module):
                                              num_heads=num_heads,
                                              batch_first=False)
             # batch_first=False => 输入形状 [seq_len, batch_size, embed_dim]
+        elif self.fusion_strategy == "add":
+            self.fusion_output_dim = self.text_hidden_size
         else:
-            self.fusion_output_dim = self.text_hidden_size  # for demonstration
+            self.fusion_output_dim = self.text_hidden_size  # fallback
 
-    def forward(self, input_ids, attention_mask, token_type_ids, image_tensor):
+    def forward(self, input_ids, attention_mask, token_type_ids, image_tensor, return_sequence=False):
+        """
+        :param return_sequence: 为 True 时，返回序列特征 (batch_size, seq_len, fusion_dim)
+                               为 False 时，只返回句向量 (batch_size, fusion_dim) (CLS向量)
+        """
         # 1. 文本特征
         if token_type_ids is not None:
             text_outputs = self.text_encoder(
@@ -61,39 +66,61 @@ class BaseMultimodalModel(nn.Module):
                 input_ids=input_ids,
                 attention_mask=attention_mask
             )
-        # 一般取 [CLS] 向量, shape = [batch_size, hidden_size]
-        text_emb = text_outputs.last_hidden_state[:, 0, :]
+        # 序列隐状态: [batch_size, seq_len, hidden_size]
+        text_sequence = text_outputs.last_hidden_state
+        # [CLS] 向量
+        text_cls = text_sequence[:, 0, :]  # (batch_size, hidden_size)
 
-        # 2. 图像特征
-        # image_tensor shape [batch_size, 3, H, W]
-        img_feat = self.image_encoder(image_tensor)
-        # img_feat shape [batch_size, 2048, 1, 1]
-        img_feat = img_feat.view(img_feat.size(0), -1)  # -> [batch_size, 2048]
-        img_feat = self.image_proj(img_feat)  # -> [batch_size, text_hidden_size]
+        # ====== 图像特征 ======
+        img_feat = self.image_encoder(image_tensor)  # shape [batch_size, 2048, 1, 1]
+        img_feat = img_feat.view(img_feat.size(0), -1)  # [batch_size, 2048]
+        img_feat = self.image_proj(img_feat)           # [batch_size, text_hidden_size]
 
-        # 3. 多模态融合
+        # ====== 多模态融合 ======
         if self.fusion_strategy == "concat":
-            # 简单拼接
-            fused_feat = torch.cat([text_emb, img_feat], dim=-1)
+            if return_sequence:
+                # 将图像特征 broadcast 后拼接到每个 token
+                # img_feat.unsqueeze(1) => [batch_size, 1, hidden_size]
+                # repeat 在 seq_len 维度上扩展
+                expanded_img = img_feat.unsqueeze(1).repeat(1, text_sequence.size(1), 1)
+                fused_seq = torch.cat([text_sequence, expanded_img], dim=-1)  # (b, seq_len, 2*hidden_size)
+                return fused_seq
+            else:
+                # 只返回 CLS
+                fused_cls = torch.cat([text_cls, img_feat], dim=-1)  # (b, hidden_size*2)
+                return fused_cls
+
         elif self.fusion_strategy == "multi_head_attention":
-            # 1) 先把 text_emb/img_feat 扩展为 seq_len=1
-            # MHA 要求形状 [seq_len, batch_size, embed_dim] => transpose
-            text_seq = text_emb.unsqueeze(0)  # [1, batch_size, hidden_size]
-            img_seq = img_feat.unsqueeze(0)   # [1, batch_size, hidden_size]
+            # 注意：目前的 MHA 代码只展示“句向量 + 图像向量”的示例
+            # 若要对序列中每个 token 都做 cross-attention，需要更改 key/value 的序列长度
+            if return_sequence:
+                # 这里简单示例：对 text_sequence 的所有 token 做“图像向量为 key/value”的跨注意力
+                # text_seq => [seq_len, batch_size, hidden_size]
+                text_seq = text_sequence.transpose(0, 1)
+                # img_seq  => [1, batch_size, hidden_size]
+                img_seq = img_feat.unsqueeze(0)
 
-            # 2) 令 text_seq 做 query, img_seq 做 key/value
-            #    => out_seq shape: [1, batch_size, hidden_size]
-            out_seq, attn_weights = self.mha(
-                query=text_seq,
-                key=img_seq,
-                value=img_seq
-            )
-            # out_seq => [1, batch_size, hidden_size]
+                out_seq, _ = self.mha(query=text_seq, key=img_seq, value=img_seq)
+                # [seq_len, batch_size, hidden_size] => 转回 (b, seq_len, hidden_size)
+                out_seq = out_seq.transpose(0, 1)
+                return out_seq
+            else:
+                # 只处理 CLS
+                text_seq = text_cls.unsqueeze(0)  # [1, batch_size, hidden_size]
+                img_seq = img_feat.unsqueeze(0)  # [1, batch_size, hidden_size]
+                out_seq, _ = self.mha(query=text_seq, key=img_seq, value=img_seq)
+                fused_cls = out_seq.squeeze(0)  # (batch_size, hidden_size)
+                return fused_cls
 
-            # 3) 再恢复到 [batch_size, hidden_size]
-            fused_feat = out_seq.squeeze(0)
+        elif self.fusion_strategy == "add":
+            if return_sequence:
+                expanded_img = img_feat.unsqueeze(1).expand(-1, text_sequence.size(1), -1)
+                fused_seq = text_sequence + expanded_img  # (b, seq_len, hidden_size)
+                return fused_seq
+            else:
+                fused_cls = text_cls + img_feat
+                return fused_cls
+
         else:
-            # 其他策略，这里先演示一下最简单的加法
-            fused_feat = text_emb + img_feat
-
-        return fused_feat  # [batch_size, fusion_output_dim]
+            # 默认仅返回 text_cls
+            return text_cls

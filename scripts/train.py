@@ -1,4 +1,3 @@
-# scripts/train.py
 import os
 import argparse
 from collections import Counter
@@ -39,202 +38,234 @@ class Full_Model(nn.Module):
 def train(args, logger):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    task_list = args.task_list
+    new_task_name = args.task_name
+    logger.info(f"=== Start training for new task: {new_task_name} ===")
+    # ========== 1) 从 JSON 加载或初始化 train_info ==========
 
-    # 用于记录持续学习指标
+    train_info = {}
+    if os.path.exists(args.train_info_json):
+        with open(args.train_info_json, "r", encoding="utf-8") as f:
+            try:
+                train_info = json.load(f)
+                logger.info(f"Loaded existing training info from {args.train_info_json}")
+            except:
+                logger.warning(f"Failed to load {args.train_info_json}, using empty info.")
+                train_info = {}
+    if "tasks" not in train_info:
+        train_info["tasks"] = []
+    if "acc_matrix" not in train_info:
+        # 用来记录所有任务的 a_{k,j} 矩阵, 这里也可用 ContinualMetrics
+        train_info["acc_matrix"] = []
+    if "sessions" not in train_info:
+        train_info["sessions"] = []
+
+    # 旧任务数量
+    old_tasks = train_info["tasks"]  # list[str]
+    old_task_count = len(old_tasks)
+    logger.info(f"Previously learned tasks: {old_tasks} (count={old_task_count})")
+
+    # ========== 2) 将 train_info["acc_matrix"] 载入到 ContinualMetrics 里 ==========
     cm = ContinualMetrics()
-    # 如果希望从上次训练的 metrics 恢复
-    if args.load_metrics and os.path.exists(args.load_metrics):
-        cm.load_from_json(args.load_metrics)
-        logger.info(f"Loaded previous metrics from {args.load_metrics}")
+    cm.acc_matrix = train_info["acc_matrix"]  # 直接复用
 
-    # 记录本次训练过程的信息(任务, 数据, 路径, 最终指标等)
-    train_info = {
-        "train_session": args.session_name,  # 自定义, 比如 "session_20231008"
-        "task_list": task_list,
+    # ========== 3) 初始化本次训练的 session_info，用来记录训练细节 ==========
+    # (你可以按需设计里面的结构)
+    session_info = {
+        "session_name": args.session_name,
+        "task_name": new_task_name,
+        "start_time": time.strftime("%Y-%m-%d %H:%M:%S"),
         "epochs": args.epochs,
-        "details": {},  # 每个task的路径或其他信息
-        "final_continual_metrics": {},
-        "acc_matrix": []
+        "details": {},  # 训练过程中收集的数据
+        "final_metrics": None,
     }
 
-    # 依次学 tasks (也可能做多任务混合训练)
-    for k, task_name in enumerate(task_list):
-        # 1) 初始化模型 (base + head)
-        base_model = BaseMultimodalModel(args.text_model_name, args.image_model_name,
-                                         multimodal_fusion=args.fusion_strategy, num_heads=args.num_heads)
-        if args.pretrained_model_path and os.path.exists(args.pretrained_model_path):
-            logger.info(f"Loading pretrained model from {args.pretrained_model_path}")
-            base_model.load_state_dict(torch.load(args.pretrained_model_path), strict=False)
+    # ========== 4) 创建模型 + (可选) EWC 逻辑 ==========
+    base_model = BaseMultimodalModel(
+        args.text_model_name,
+        args.image_model_name,
+        multimodal_fusion=args.fusion_strategy,
+        num_heads=args.num_heads
+    )
+    if args.pretrained_model_path and os.path.exists(args.pretrained_model_path):
+        logger.info(f"Loading pretrained base_model from {args.pretrained_model_path}")
+        base_model.load_state_dict(torch.load(args.pretrained_model_path), strict=False)
 
-        head = get_head(task_name, base_model, args)
-        full_model = Full_Model(base_model, head, dropout_prob=args.dropout_prob)
-        full_model.to(device)
+    head = get_head(new_task_name, base_model, args)
+    full_model = Full_Model(base_model, head, dropout_prob=args.dropout_prob)
+    full_model.to(device)
 
-        # 确保所有参数都启用梯度
-        for name, param in full_model.named_parameters():
-            if not param.requires_grad:
-                param.requires_grad = True
+    # 若不是第一次，则可以加载 EWC fisher
+    ewc = None
+    if old_task_count > 0 and args.strategy == "ewc":
+        ewc = MultiTaskEWC(
+            model=full_model,
+            current_task_name=new_task_name,
+            ewc_lambda=args.ewc_lambda,
+            ewc_dir="ewc_params"  # 你定义的保存EWC参数的目录
+        )
+        ewc.load_all_previous_tasks()
 
-        # == 使用 weight_decay 来做 L2 正则，缓解过拟合 ==
-        optimizer = AdamW(full_model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-        # == 学习率调度器(示例: 每隔 step_size=2 个 epoch, lr缩放 gamma=0.1)==
-        scheduler = StepLR(optimizer, step_size=2, gamma=0.1)
+    # ========== 5) 训练该任务 ==========
+    optimizer = AdamW(full_model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    scheduler = StepLR(optimizer, step_size=2, gamma=0.1)
+    train_dataset = get_dataset(new_task_name, "train", args)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
 
-        # 2) 如果需要 EWC 并且不是第一个任务
-        ewc = None
-        if args.strategy == 'ewc' :  # 只有第k>0时, 才算是有旧任务
-            ewc = MultiTaskEWC(
-                model=full_model,
-                current_task_name=task_name,
-                ewc_lambda=args.ewc_lambda,
-                ewc_dir="ewc_params"
-            )
-            # 加载所有旧任务的fisher
-            ewc.load_all_previous_tasks()
+    best_dev_acc = 0.0
+    no_improve_count = 0
+    patience = args.patience
 
-        # 3) 准备当前任务训练集
-        train_dataset = get_dataset(task_name, "train", args)
-        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    epoch_losses = []
+    dev_metrics_history = []
 
-        # Early Stopping 相关
-        best_dev_acc = 0.0
-        no_improve_count = 0
-        patience = args.patience  # max epochs to wait for improvement
+    for epoch in range(args.epochs):
+        t0 = time.time()
+        full_model.train()
+        total_loss = 0.0
+        label_counter = Counter()
 
-        # 记录本任务过程
-        info_this_task = {
-            "train_loss_each_epoch": [],
-            "dev_metrics_each_epoch": [],  # 这里存各 Epoch 的 {acc, prec, recall, f1}
-            "final_dev_acc": 0.0,
-            "final_test_acc": 0.0
-        }
-
-        # 4) 训练
-        for epoch in range(args.epochs):
-            start_time = time.time()  # 开始计时
-            full_model.train()
-            total_loss = 0.0
-            label_counter = Counter()
-
-            for batch in train_loader:
-                input_ids = batch["input_ids"].to(device)
-                attention_mask = batch["attention_mask"].to(device)
-                token_type_ids = batch["token_type_ids"]
-                if token_type_ids is not None:
-                    token_type_ids = token_type_ids.to(device)
-                image_tensor = batch["image_tensor"].to(device)
-                labels = batch["label"].to(device)
-
-                label_counter.update(labels.cpu().numpy())
-
-                optimizer.zero_grad()
-                logits = full_model(input_ids, attention_mask, token_type_ids, image_tensor)
-                loss = F.cross_entropy(logits, labels)
-
-                if ewc:
-                    loss += ewc.penalty(full_model)
-
-                loss.backward()
-                # 可以在此处做梯度裁剪(clip)防梯度爆炸
-                torch.nn.utils.clip_grad_norm_(full_model.parameters(), max_norm=1.0)
-                optimizer.step()
-
-                total_loss += loss.item()
-
-            # 记录一个 epoch 的平均损失
-            avg_loss = total_loss / len(train_loader)
-
-            # 调整学习率(如果使用scheduler)
-            scheduler.step()
-
-            # 评估 dev
-            dev_metrics = evaluate_single_task(full_model, task_name, "dev", device, args)
-            info_this_task["train_loss_each_epoch"].append(avg_loss)
-            info_this_task["dev_metrics_each_epoch"].append(dev_metrics)
-
-            flag_save = False
-            # 早停判断
-            if dev_metrics["accuracy"] > best_dev_acc:
-                flag_save = True
-                best_dev_acc = dev_metrics["accuracy"]
-                no_improve_count = 0
-                torch.save(full_model.state_dict(), "checkpoints/best_model.pt")
+        for batch in train_loader:
+            input_ids = batch["input_ids"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
+            if "token_type_ids" in batch:
+                token_type_ids = batch["token_type_ids"].to(device)
             else:
-                no_improve_count += 1
-                if no_improve_count >= patience:
-                    logger.info(f"[Early Stopping] Dev accuracy hasn't improved for {patience} epochs.")
-                    break
-            end_time = time.time()  # 结束计时
-            elapsed_time = (end_time - start_time) / 60  # 计算耗时
+                token_type_ids = None
+            image_tensor = batch["image_tensor"].to(device)
+            labels = batch["labels"].to(device)
 
-            logger.info(f"[Task={task_name}] Epoch {epoch + 1}/{args.epochs}, "
-                  f"Loss={avg_loss:.4f}, "
-                  f"Acc(micro_f1)={dev_metrics['accuracy']:.2f}%, "
-                  f"Pre_macro={dev_metrics['precision_macro']:.2f}%, "
-                  f"Recall_macro={dev_metrics['recall_macro']:.2f}%, "
-                  f"f1_macro={dev_metrics['f1_macro']:.2f}%, "
-                  f"LabelDist={label_counter}, "
-                  f"Epoch processed in {elapsed_time:.4f} minutes.")
+            optimizer.zero_grad()
+            is_sequence_task = (args.task_name in ["mate", "mner", "mabsa"])  # 举例
 
-        # == 加载最佳模型(如果使用早停+临时保存) ==
-        best_model_path = "checkpoints/best_model.pt"
-        if os.path.exists(best_model_path) and flag_save:
-            logger.info("[train.py] Loading best val_acc model for final testing ...")
-            full_model.load_state_dict(torch.load(best_model_path))
+            if is_sequence_task:
+                # return_sequence=True
+                # => fused_feat.shape = (batch_size, seq_len, fusion_dim)
+                fused_feat = full_model.base_model(
+                    input_ids, attention_mask, token_type_ids, image_tensor,
+                    return_sequence=True
+                )
+                logits = full_model.head(fused_feat)  # => (batch_size, seq_len, num_labels)
 
-        # 学完第 k 个任务后:
-        # - 记录 final dev/test acc for this task
-        final_dev_metrics = evaluate_single_task(full_model, task_name, "dev", device, args)
-        final_test_metrics = evaluate_single_task(full_model, task_name, "test", device, args)
-        info_this_task["final_dev_metrics"] = final_dev_metrics
-        info_this_task["final_test_metrics"] = final_test_metrics
+                # cross entropy
+                loss = nn.functional.cross_entropy(
+                    logits.view(-1, args.num_labels),
+                    labels.view(-1),
+                    ignore_index=-100
+                )
+            else:
+                # 句级分类: return_sequence=False => (batch_size, fusion_dim)
+                fused_feat = full_model.base_model(
+                    input_ids, attention_mask, token_type_ids, image_tensor,
+                    return_sequence=False
+                )
+                logits = full_model.head(fused_feat)  # => (batch_size, num_labels)
+                loss = nn.functional.cross_entropy(logits, labels)  # => (batch_size)
 
-        # 训练完后 => 估计Fisher并保存
-        if ewc:
-            ewc.estimate_and_save_fisher(train_loader, device=device, sample_size=200)
+            if ewc:
+                loss += ewc.penalty(full_model)
 
-        # 保存最终模型
-        torch.save(full_model.state_dict(), args.output_model_path)
-        logger.info("Model saved at", args.output_model_path)
+            loss.backward()
+            # 可以在此处做梯度裁剪(clip)防梯度爆炸
+            torch.nn.utils.clip_grad_norm_(full_model.parameters(), max_norm=1.0)
+            optimizer.step()
 
-        # 对所有已学任务的test集评估 => performance_list
-        performance_list = evaluate_all_learned_tasks(full_model, task_list[:k + 1], device, args)
-        logger.info(f"[train.py] After finishing task {task_name}, test acc on tasks={performance_list}")
-        cm.update_acc_matrix(k, performance_list)
+            total_loss += loss.item()
+            label_counter.update(labels.cpu().numpy())
 
-        # 保存本任务信息
-        train_info["details"][task_name] = info_this_task
+        avg_loss = total_loss / len(train_loader)
+        epoch_losses.append(avg_loss)
+        scheduler.step()
 
-        if args.save_each_task:
-            ckpt_path = f"checkpoints/{task_name}_model.pt"
-            torch.save(full_model.state_dict(), ckpt_path)
-            logger.info(f"[train.py] (Optional) Saved model checkpoint for task={task_name} => {ckpt_path}")
+        # 验证集
+        dev_metrics = evaluate_single_task(full_model, new_task_name, "dev", device, args)
+        dev_metrics_history.append(dev_metrics)
 
-    # 所有任务学完 => 计算多任务指标
-    k_final = len(task_list)
-    final_metrics = compute_metrics_example(cm, k_final)
-    logger.info("[train.py] Final Continual Metrics:", final_metrics)
-    # 也可以将 cm.acc_matrix 进行保存
-    train_info["final_continual_metrics"] = final_metrics
+        # early stopping
+        flag_save = False
+        if dev_metrics["accuracy"] > best_dev_acc:
+            best_dev_acc = dev_metrics["accuracy"]
+            no_improve_count = 0
+            flag_save = True
+            torch.save(full_model.state_dict(), "checkpoints/best_model.pt")
+        else:
+            no_improve_count += 1
+            if no_improve_count >= patience:
+                logger.info(f"[EarlyStopping] Dev accuracy no improve for {patience} epochs.")
+                break
+
+        elapsed = (time.time() - t0) / 60
+        logger.info(f"[Task={new_task_name}] Epoch {epoch + 1}/{args.epochs}, "
+              f"Loss={avg_loss:.4f}, "
+              f"Acc(micro_f1)={dev_metrics['accuracy']:.2f}%, "
+              f"Pre_macro={dev_metrics['precision_macro']:.2f}%, "
+              f"Recall_macro={dev_metrics['recall_macro']:.2f}%, "
+              f"f1_macro={dev_metrics['f1_macro']:.2f}%, "
+              f"LabelDist={label_counter}, "
+              f"Epoch processed in {elapsed:.4f} minutes.")
+
+    # ========== 6) 用最佳模型做最终 dev/test 测试 ==========
+    if os.path.exists("checkpoints/best_model.pt") and flag_save:
+        full_model.load_state_dict(torch.load("checkpoints/best_model.pt"))
+    final_dev_metrics = evaluate_single_task(full_model, new_task_name, "dev", device, args)
+    final_test_metrics = evaluate_single_task(full_model, new_task_name, "test", device, args)
+
+    session_info["details"] = {
+        "epoch_losses": epoch_losses,
+        "dev_metrics_history": dev_metrics_history,
+        "final_dev_metrics": final_dev_metrics,
+        "final_test_metrics": final_test_metrics
+    }
+
+    # ========== 7) 更新 EWC fisher ==========
+    if ewc:
+        ewc.estimate_and_save_fisher(train_loader, device=device, sample_size=200)
+
+    # ========== 8) 保存最终模型 (可选) ==========
+    torch.save(full_model.state_dict(), args.output_model_path)
+    logger.info(f"Final model saved => {args.output_model_path}")
+
+    # ========== 9) 将本任务追加到旧任务列表中，并计算 a_{k,j} ==========
+    #    只有当不是首次训练(即 old_task_count >= 1)，才计算多任务指标
+    new_task_index = old_task_count  # 0-based
+    train_info["tasks"].append(new_task_name)
+
+    # 评估之前所有任务 + 本任务
+    all_tasks = train_info["tasks"]  # 现在长度 = old_task_count + 1
+    performance_list = evaluate_all_learned_tasks(full_model, all_tasks, device, args)
+    # => [acc_task1, acc_task2, ..., acc_task(new)]
+    # 在 cm.acc_matrix 中的行索引就是 new_task_index
+    cm.update_acc_matrix(new_task_index, performance_list)
+
+    # 若是第一个任务, 不算持续学习指标
+    if len(all_tasks) <= 1:
+        logger.info("[Info] This is the first task, skip any CL metrics.")
+        final_metrics = {}
+    else:
+        # 现在一共学了 len(all_tasks) 个任务
+        k = len(all_tasks)
+        final_metrics = compute_metrics_example(cm, k)
+        logger.info(f"Continual Metrics after learning {k} tasks: {final_metrics}")
+
+    session_info["final_metrics"] = final_metrics
+
+    # ========== 10) 覆盖 train_info["acc_matrix"] 并将 session_info 追加到 train_info["sessions"] ==========
     train_info["acc_matrix"] = cm.acc_matrix
+    train_info["sessions"].append(session_info)
 
-    # 保存 metrics
-    if args.save_metrics:
-        cm.save_to_json(args.save_metrics)
-        logger.info(f"[train.py] Saved acc_matrix to {args.save_metrics}")
-
-    # 保存 train_info
-    if args.train_info_json:
-        with open(args.train_info_json, "w", encoding="utf-8") as f:
-            json.dump(train_info, f, indent=2)
-        logger.info(f"[train.py] Train info saved to {args.train_info_json}")
+    # ========== 11) 保存新的 train_info 到 JSON ==========
+    with open(args.train_info_json, "w", encoding="utf-8") as f:
+        json.dump(train_info, f, indent=2)
+    logger.info(f"Updated train_info JSON => {args.train_info_json}")
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task_list", type=str, nargs='+', default="masc",
-                        help="List of tasks to train on sequentially")
+    parser.add_argument("--task_name", type=str, default="masc", help="Name of the new task to train.")
+    parser.add_argument("--session_name", type=str, default="default_session", help="Name or ID for this training session")
+    parser.add_argument("--train_info_json", type=str, default="checkpoints/train_info.json", help="Path to record train info (tasks, data, metrics, etc.)")
+    parser.add_argument("--pretrained_model_path", type=str, default="", help="Path to a pretrained model to continue training")
+    parser.add_argument("--output_model_path", type=str, default="checkpoints/model_1.pt")
+
     parser.add_argument("--train_text_file", type=str, default="data/MASC/twitter_data/twitter2015/train.txt")
     parser.add_argument("--test_text_file", type=str, default="data/MASC/twitter_data/twitter2015/test.txt")
     parser.add_argument("--dev_text_file", type=str, default="data/MASC/twitter_data/twitter2015/dev.txt")
@@ -249,25 +280,15 @@ def parse_args():
     parser.add_argument("--num_labels", type=int, default=3)  # -1, 0, 1
     parser.add_argument("--strategy", type=str, default="ewc")  # ewc / none ...
     parser.add_argument("--ewc_lambda", type=float, default=1000)
-    parser.add_argument("--output_model_path", type=str, default="checkpoints/model_1.pt")
-    parser.add_argument("--pretrained_model_path", type=str, default="",
-                        help="Path to a pretrained model to continue training")
+
 
     # == 新增正则化和防过拟合的超参 ==
     parser.add_argument("--weight_decay", type=float, default=1e-5, help="Weight decay (L2 regularization).")
     parser.add_argument("--dropout_prob", type=float, default=0.1, help="Dropout probability in Full_Model.")
     parser.add_argument("--patience", type=int, default=5, help="Patience for early stopping (epochs).")
 
-    parser.add_argument("--save_each_task", action="store_true",
-                        help="Whether to save model checkpoint after finishing each task")
-    parser.add_argument("--load_metrics", type=str, default="",
-                        help="Path to a JSON from which to load existing ContinualMetrics")
-    parser.add_argument("--save_metrics", type=str, default="checkpoints/acc_matrix.json",
-                        help="Path to a JSON to save updated ContinualMetrics at the end")
-    parser.add_argument("--train_info_json", type=str, default="checkpoints/train_info.json",
-                        help="Path to record train info (tasks, data, metrics, etc.)")
-    parser.add_argument("--session_name", type=str, default="default_session",
-                        help="Name or ID for this training session")
+
+
     args = parser.parse_args()
     return args
 
@@ -275,7 +296,7 @@ def parse_args():
 def main():
     args = parse_args()
     logger = setup_logger(logging.INFO)  # 或者设置其他等级 DEBUG/ERROR 等
-
+    logger.info("Starting train.py for a single new task ...")
     train(args, logger)
 
 
