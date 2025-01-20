@@ -29,8 +29,8 @@ class MATEDataset(Dataset):
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
         self.max_seq_length = max_seq_length
 
-        self.samples = self._read_data()
-
+        self.samples = []
+        self._read_data()
 
         self.image_transform = transforms.Compose([
             transforms.Resize((224, 224)),
@@ -57,7 +57,6 @@ class MATEDataset(Dataset):
                 image_name += ".jpg"
             image_path = os.path.join(self.image_dir, image_name)
             self.samples.append((text_with_T, aspect_term, image_path))
-        return samples
 
     def __len__(self):
         return len(self.samples)
