@@ -1,8 +1,8 @@
-# models/task_heads/masc_head.py
+# models/task_heads/re_head.py
 import torch
 import torch.nn as nn
 
-class MASCHead(nn.Module):
+class MNREHead(nn.Module):
     def __init__(self, input_dim, num_relations=24):
         super().__init__()
         self.classifier = nn.Linear(input_dim, num_relations)

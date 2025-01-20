@@ -1,7 +1,7 @@
 # \models\task_heads\get_head.py
 from models.task_heads.mabsa_head import MABSAHead
 from models.task_heads.mner_head import MNERHead
-from models.task_heads.re_head import REHead
+from models.task_heads.mnre_head import MNREHead
 from models.task_heads.masc_head import MASCHead
 from models.task_heads.mate_head import MATEHead
 def get_head(task, base_model, args):
@@ -22,8 +22,8 @@ def get_head(task, base_model, args):
             input_dim=base_model.fusion_output_dim,
             num_labels=args.num_labels
         )
-    elif task == "re":
-        return REHead(
+    elif task == "mnre":
+        return MNREHead(
             input_dim=base_model.fusion_output_dim,
             num_labels=args.num_labels
         )
