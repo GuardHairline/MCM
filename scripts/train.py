@@ -160,6 +160,7 @@ def train(args, logger):
                 )
                 logits = full_model.head(fused_feat)  # => (batch_size, num_labels)
                 loss = nn.functional.cross_entropy(logits, labels)  # => (batch_size)
+                label_counter.update(labels.cpu().numpy())
 
             if ewc:
                 loss += ewc.penalty(full_model)
@@ -170,7 +171,6 @@ def train(args, logger):
             optimizer.step()
 
             total_loss += loss.item()
-            label_counter.update(labels.cpu().numpy())
 
         avg_loss = total_loss / len(train_loader)
         epoch_losses.append(avg_loss)
@@ -200,8 +200,9 @@ def train(args, logger):
               f"Pre_macro={dev_metrics['precision_macro']:.2f}%, "
               f"Recall_macro={dev_metrics['recall_macro']:.2f}%, "
               f"f1_macro={dev_metrics['f1_macro']:.2f}%, "
-              f"LabelDist={label_counter}, "
               f"Epoch processed in {elapsed:.4f} minutes.")
+        if is_sequence_task:
+            logger.info(f"LabelDist={label_counter} ")
 
     # ========== 6) 用最佳模型做最终 dev/test 测试 ==========
     if os.path.exists("checkpoints/best_model.pt") and flag_save:
