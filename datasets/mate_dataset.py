@@ -69,9 +69,9 @@ class MATEDataset(Dataset):
 
 
         if "$T$" in text_with_T:
-            replaced_text = text_with_T.replace("$T$", aspect_term)
             start_pos = text_with_T.index("$T$")
             end_pos = start_pos + len(aspect_term) - 1
+            replaced_text = text_with_T.replace("$T$", aspect_term)
         else:
             replaced_text = text_with_T  # 若无 $T$, 也可直接拼
             start_pos = -1
