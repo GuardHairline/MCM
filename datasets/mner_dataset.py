@@ -2,90 +2,118 @@
 import os
 import torch
 from torch.utils.data import Dataset
-from PIL import Image
-from torchvision import transforms
 from transformers import AutoTokenizer
-
+from PIL import Image
+import torchvision.transforms as transforms
 
 class MNERDataset(Dataset):
-    def __init__(self, text_file, image_dir, tokenizer_name, max_length=128, transform=None):
-        """
-        :param text_file: 文本文件路径
-        :param image_dir: 存放图片的目录
-        :param tokenizer_name: 用于文本 tokenization 的模型，比如 'bert-base-chinese'
-        :param max_length: 文本序列最大长度
-        :param transform: 图像预处理 transform
-        """
+    """
+    MNER: Multimodal NER, 第三行为实体类型(-1..2), 做序列标注(B-type/I-type/O).
+    若每条样本只有一个实体, 我们就对这个实体做B-type/I-type, 其余token为O.
+    """
+
+    def __init__(self,
+                 text_file: str,
+                 image_dir: str,
+                 tokenizer_name: str = "microsoft/deberta-v3-base",
+                 max_seq_length: int = 128):
+        super().__init__()
         self.text_file = text_file
         self.image_dir = image_dir
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-        self.max_length = max_length
-        self.transform = transform if transform else transforms.Compose([
+        self.max_seq_length = max_seq_length
+
+        self.samples = self._read_data()
+
+        self.image_transform = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
-            transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
         ])
 
-        # 读取数据
-        self.data = self._parse_text_data()
+        # 定义 type_map
+        self.type_map = {-1: 0, 0:1, 1:2, 2:3}  # 4类
 
-    def _parse_text_data(self):
-        data_list = []
-        with open(self.text_file, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
+    def _read_data(self):
+        lines = []
+        with open(self.text_file, "r", encoding="utf-8") as f:
+            lines = [l.strip() for l in f.readlines()]
+        assert len(lines) % 4 == 0, "MNER 数据格式有误, 每4行构成一条样本"
 
+        samples = []
         for i in range(0, len(lines), 4):
-            text = lines[i].strip()
-            entity = lines[i + 1].strip()
-            category = int(lines[i + 2].strip())
-            image_name = lines[i + 3].strip()
-
+            text_with_T = lines[i]
+            entity_str = lines[i+1]
+            entity_type_str = lines[i+2]  # -1..2
+            image_name = lines[i+3]
             if not image_name.endswith(".jpg"):
                 image_name += ".jpg"
             image_path = os.path.join(self.image_dir, image_name)
 
-            # 记录
-            data_list.append((text, entity, category, image_path))
-        return data_list
+            entity_type = int(entity_type_str)  # -1..2
+            samples.append((text_with_T, entity_str, entity_type, image_path))
+        return samples
 
     def __len__(self):
-        return len(self.data)
+        return len(self.samples)
 
     def __getitem__(self, idx):
-        text, entity, category, image_path = self.data[idx]
+        text_with_T, entity_str, entity_type, image_path = self.samples[idx]
 
-        # 文本处理
-        # 这里假设我们把 text 和 entity 连接起来（也可以视需求分开编码）
-        # 你也可以只对 text 做编码，把 entity 作为额外 token
-        input_text = f"{text} [SEP] {entity}"
-        encoding = self.tokenizer(
-            input_text,
-            truncation=True,
+        start_pos = text_with_T.index("$T$")
+        end_pos = start_pos + len(entity_str) - 1
+        replaced_text = text_with_T.replace("$T$", entity_str)
+
+        # B-type / I-type / O=0
+        t = self.type_map[entity_type]  # => t in [0..3]
+        # B-type => 1 + 2*t
+        # I-type => 2 + 2*t
+        # O => 0
+        char_label = [0]*len(replaced_text)
+        if 0 <= start_pos < len(replaced_text):
+            b_label = 1 + 2*t
+            i_label = 2 + 2*t
+            char_label[start_pos] = b_label
+            for c in range(start_pos+1, end_pos+1):
+                char_label[c] = i_label
+
+        # tokenizer + offset
+        encoded = self.tokenizer(
+            replaced_text,
+            max_length=self.max_seq_length,
             padding='max_length',
-            max_length=self.max_length,
-            return_tensors='pt'
+            truncation=True,
+            return_offsets_mapping=True
         )
+        offsets = encoded["offset_mapping"]
 
-        # 图像处理
-        # 需要先判断文件是否存在，以及能否被PIL打开
-        try:
-            with Image.open(image_path).convert('RGB') as img:
-                img_tensor = self.transform(img)
-        except:
-            # 若图片损坏，可返回一个空白或随机tensor
-            img_tensor = torch.zeros((3, 224, 224))
+        label_ids = []
+        for (start_char, end_char) in offsets:
+            if start_char == end_char:
+                label_ids.append(-100)
+            else:
+                sub_chars = char_label[start_char:end_char]
+                if len(sub_chars) == 0:
+                    label_ids.append(-100)
+                else:
+                    label_ids.append(sub_chars[0])
 
-        # category 标签：转换为模型可接受的Tensor，并映射到 [0, 2]
-        label = torch.tensor(category + 1, dtype=torch.long)  # 将 -1, 0, 1, 2 映射到 0, 1, 2, 3
+        encoded.pop("offset_mapping")
 
+        image_tensor = self._load_image(image_path)
 
-        # 返回一个字典或元组
-        return {
-            "input_ids": encoding["input_ids"].squeeze(0),  # [max_length]
-            "attention_mask": encoding["attention_mask"].squeeze(0),
-            "token_type_ids": encoding.get("token_type_ids", None).squeeze(0) if encoding.get("token_type_ids", None) is not None else None,  # [128] 或 None
-            "image_tensor": img_tensor,  # [3, 224, 224]
-            "label": label,
-            "entity": entity,  # 有时在推理分析时可查看
-            "text": text
+        out_item = {
+            "input_ids": torch.tensor(encoded["input_ids"], dtype=torch.long),
+            "attention_mask": torch.tensor(encoded["attention_mask"], dtype=torch.long),
+            "labels": torch.tensor(label_ids, dtype=torch.long),
+            "image_tensor": image_tensor
         }
+        if "token_type_ids" in encoded:
+            out_item["token_type_ids"] = torch.tensor(encoded["token_type_ids"], dtype=torch.long)
+
+        return out_item
+
+    def _load_image(self, path):
+        with Image.open(path).convert("RGB") as img:
+            return self.image_transform(img)
