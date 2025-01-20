@@ -99,7 +99,7 @@ class MASCDataset(Dataset):
             "input_ids": torch.tensor(tokenized_input["input_ids"], dtype=torch.long),
             "attention_mask": torch.tensor(tokenized_input["attention_mask"], dtype=torch.long),
             "image_tensor": image_tensor,
-            "label": torch.tensor(label_id, dtype=torch.long)  # 三分类
+            "labels": torch.tensor(label_id, dtype=torch.long)  # 三分类
         }
 
         if "token_type_ids" in tokenized_input:
