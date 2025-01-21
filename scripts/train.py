@@ -117,146 +117,148 @@ def train(args, logger):
 
     epoch_losses = []
     dev_metrics_history = []
+    try:
+        for epoch in range(args.epochs):
+            t0 = time.time()
+            full_model.train()
+            total_loss = 0.0
+            label_counter = Counter()
 
-    for epoch in range(args.epochs):
-        t0 = time.time()
-        full_model.train()
-        total_loss = 0.0
-        label_counter = Counter()
+            for batch in train_loader:
+                input_ids = batch["input_ids"].to(device)
+                attention_mask = batch["attention_mask"].to(device)
+                if "token_type_ids" in batch:
+                    token_type_ids = batch["token_type_ids"].to(device)
+                else:
+                    token_type_ids = None
+                image_tensor = batch["image_tensor"].to(device)
+                labels = batch["labels"].to(device)
 
-        for batch in train_loader:
-            input_ids = batch["input_ids"].to(device)
-            attention_mask = batch["attention_mask"].to(device)
-            if "token_type_ids" in batch:
-                token_type_ids = batch["token_type_ids"].to(device)
+                optimizer.zero_grad()
+                is_sequence_task = (args.task_name in ["mate", "mner", "mabsa"])  # 举例
+
+                if is_sequence_task:
+                    # return_sequence=True
+                    # => fused_feat.shape = (batch_size, seq_len, fusion_dim)
+                    fused_feat = full_model.base_model(
+                        input_ids, attention_mask, token_type_ids, image_tensor,
+                        return_sequence=True
+                    )
+                    logits = full_model.head(fused_feat)  # => (batch_size, seq_len, num_labels)
+
+                    # cross entropy
+                    loss = nn.functional.cross_entropy(
+                        logits.view(-1, args.num_labels),
+                        labels.view(-1),
+                        ignore_index=-100
+                    )
+                else:
+                    # 句级分类: return_sequence=False => (batch_size, fusion_dim)
+                    fused_feat = full_model.base_model(
+                        input_ids, attention_mask, token_type_ids, image_tensor,
+                        return_sequence=False
+                    )
+                    logits = full_model.head(fused_feat)  # => (batch_size, num_labels)
+                    loss = nn.functional.cross_entropy(logits, labels)  # => (batch_size)
+                    label_counter.update(labels.cpu().numpy())
+
+                if ewc:
+                    loss += ewc.penalty(full_model)
+
+                loss.backward()
+                # 可以在此处做梯度裁剪(clip)防梯度爆炸
+                torch.nn.utils.clip_grad_norm_(full_model.parameters(), max_norm=1.0)
+                optimizer.step()
+
+                total_loss += loss.item()
+
+            avg_loss = total_loss / len(train_loader)
+            epoch_losses.append(avg_loss)
+            scheduler.step()
+
+            # 验证集
+            dev_metrics = evaluate_single_task(full_model, new_task_name, "dev", device, args)
+            dev_metrics_history.append(dev_metrics)
+
+            # early stopping
+            flag_save = False
+            if dev_metrics["accuracy"] > best_dev_acc:
+                best_dev_acc = dev_metrics["accuracy"]
+                no_improve_count = 0
+                flag_save = True
+                torch.save(full_model.state_dict(), "checkpoints/best_model.pt")
             else:
-                token_type_ids = None
-            image_tensor = batch["image_tensor"].to(device)
-            labels = batch["labels"].to(device)
+                no_improve_count += 1
+                if no_improve_count >= patience:
+                    logger.info(f"[EarlyStopping] Dev accuracy no improve for {patience} epochs.")
+                    break
 
-            optimizer.zero_grad()
-            is_sequence_task = (args.task_name in ["mate", "mner", "mabsa"])  # 举例
-
+            elapsed = (time.time() - t0) / 60
+            logger.info(f"[Task={new_task_name}] Epoch {epoch + 1}/{args.epochs}, "
+                  f"Loss={avg_loss:.4f}, "
+                  f"Acc(micro_f1)={dev_metrics['accuracy']:.2f}%, "
+                  f"Pre_macro={dev_metrics['precision_macro']:.2f}%, "
+                  f"Recall_macro={dev_metrics['recall_macro']:.2f}%, "
+                  f"f1_macro={dev_metrics['f1_macro']:.2f}%, "
+                  f"Epoch processed in {elapsed:.4f} minutes.")
             if is_sequence_task:
-                # return_sequence=True
-                # => fused_feat.shape = (batch_size, seq_len, fusion_dim)
-                fused_feat = full_model.base_model(
-                    input_ids, attention_mask, token_type_ids, image_tensor,
-                    return_sequence=True
-                )
-                logits = full_model.head(fused_feat)  # => (batch_size, seq_len, num_labels)
+                logger.info(f"LabelDist={label_counter} ")
 
-                # cross entropy
-                loss = nn.functional.cross_entropy(
-                    logits.view(-1, args.num_labels),
-                    labels.view(-1),
-                    ignore_index=-100
-                )
-            else:
-                # 句级分类: return_sequence=False => (batch_size, fusion_dim)
-                fused_feat = full_model.base_model(
-                    input_ids, attention_mask, token_type_ids, image_tensor,
-                    return_sequence=False
-                )
-                logits = full_model.head(fused_feat)  # => (batch_size, num_labels)
-                loss = nn.functional.cross_entropy(logits, labels)  # => (batch_size)
-                label_counter.update(labels.cpu().numpy())
+        # ========== 6) 用最佳模型做最终 dev/test 测试 ==========
+        if os.path.exists("checkpoints/best_model.pt") and flag_save:
+            full_model.load_state_dict(torch.load("checkpoints/best_model.pt"))
+        final_dev_metrics = evaluate_single_task(full_model, new_task_name, "dev", device, args)
+        final_test_metrics = evaluate_single_task(full_model, new_task_name, "test", device, args)
 
-            if ewc:
-                loss += ewc.penalty(full_model)
+        session_info["details"] = {
+            "epoch_losses": epoch_losses,
+            "dev_metrics_history": dev_metrics_history,
+            "final_dev_metrics": final_dev_metrics,
+            "final_test_metrics": final_test_metrics
+        }
 
-            loss.backward()
-            # 可以在此处做梯度裁剪(clip)防梯度爆炸
-            torch.nn.utils.clip_grad_norm_(full_model.parameters(), max_norm=1.0)
-            optimizer.step()
+        # ========== 7) 更新 EWC fisher ==========
+        if ewc:
+            ewc.estimate_and_save_fisher(train_loader, device=device, sample_size=200)
 
-            total_loss += loss.item()
+        # ========== 8) 保存最终模型 (可选) ==========
+        torch.save(full_model.state_dict(), args.output_model_path)
+        logger.info(f"Final model saved => {args.output_model_path}")
 
-        avg_loss = total_loss / len(train_loader)
-        epoch_losses.append(avg_loss)
-        scheduler.step()
+        # ========== 9) 将本任务追加到旧任务列表中，并计算 a_{k,j} ==========
+        #    只有当不是首次训练(即 old_task_count >= 1)，才计算多任务指标
+        new_task_index = old_task_count  # 0-based
+        train_info["tasks"].append(new_task_name)
 
-        # 验证集
-        dev_metrics = evaluate_single_task(full_model, new_task_name, "dev", device, args)
-        dev_metrics_history.append(dev_metrics)
+        # 评估之前所有任务 + 本任务
+        all_tasks = train_info["tasks"]  # 现在长度 = old_task_count + 1
+        performance_list = evaluate_all_learned_tasks(full_model, all_tasks, device, args)
+        # => [acc_task1, acc_task2, ..., acc_task(new)]
+        # 在 cm.acc_matrix 中的行索引就是 new_task_index
+        cm.update_acc_matrix(new_task_index, performance_list)
 
-        # early stopping
-        flag_save = False
-        if dev_metrics["accuracy"] > best_dev_acc:
-            best_dev_acc = dev_metrics["accuracy"]
-            no_improve_count = 0
-            flag_save = True
-            torch.save(full_model.state_dict(), "checkpoints/best_model.pt")
+        # 若是第一个任务, 不算持续学习指标
+        if len(all_tasks) <= 1:
+            logger.info("[Info] This is the first task, skip any CL metrics.")
+            final_metrics = {}
         else:
-            no_improve_count += 1
-            if no_improve_count >= patience:
-                logger.info(f"[EarlyStopping] Dev accuracy no improve for {patience} epochs.")
-                break
+            # 现在一共学了 len(all_tasks) 个任务
+            k = len(all_tasks)
+            final_metrics = compute_metrics_example(cm, k)
+            logger.info(f"Continual Metrics after learning {k} tasks: {final_metrics}")
 
-        elapsed = (time.time() - t0) / 60
-        logger.info(f"[Task={new_task_name}] Epoch {epoch + 1}/{args.epochs}, "
-              f"Loss={avg_loss:.4f}, "
-              f"Acc(micro_f1)={dev_metrics['accuracy']:.2f}%, "
-              f"Pre_macro={dev_metrics['precision_macro']:.2f}%, "
-              f"Recall_macro={dev_metrics['recall_macro']:.2f}%, "
-              f"f1_macro={dev_metrics['f1_macro']:.2f}%, "
-              f"Epoch processed in {elapsed:.4f} minutes.")
-        if is_sequence_task:
-            logger.info(f"LabelDist={label_counter} ")
+        session_info["final_metrics"] = final_metrics
 
-    # ========== 6) 用最佳模型做最终 dev/test 测试 ==========
-    if os.path.exists("checkpoints/best_model.pt") and flag_save:
-        full_model.load_state_dict(torch.load("checkpoints/best_model.pt"))
-    final_dev_metrics = evaluate_single_task(full_model, new_task_name, "dev", device, args)
-    final_test_metrics = evaluate_single_task(full_model, new_task_name, "test", device, args)
+        # ========== 10) 覆盖 train_info["acc_matrix"] 并将 session_info 追加到 train_info["sessions"] ==========
+        train_info["acc_matrix"] = cm.acc_matrix
+        train_info["sessions"].append(session_info)
 
-    session_info["details"] = {
-        "epoch_losses": epoch_losses,
-        "dev_metrics_history": dev_metrics_history,
-        "final_dev_metrics": final_dev_metrics,
-        "final_test_metrics": final_test_metrics
-    }
-
-    # ========== 7) 更新 EWC fisher ==========
-    if ewc:
-        ewc.estimate_and_save_fisher(train_loader, device=device, sample_size=200)
-
-    # ========== 8) 保存最终模型 (可选) ==========
-    torch.save(full_model.state_dict(), args.output_model_path)
-    logger.info(f"Final model saved => {args.output_model_path}")
-
-    # ========== 9) 将本任务追加到旧任务列表中，并计算 a_{k,j} ==========
-    #    只有当不是首次训练(即 old_task_count >= 1)，才计算多任务指标
-    new_task_index = old_task_count  # 0-based
-    train_info["tasks"].append(new_task_name)
-
-    # 评估之前所有任务 + 本任务
-    all_tasks = train_info["tasks"]  # 现在长度 = old_task_count + 1
-    performance_list = evaluate_all_learned_tasks(full_model, all_tasks, device, args)
-    # => [acc_task1, acc_task2, ..., acc_task(new)]
-    # 在 cm.acc_matrix 中的行索引就是 new_task_index
-    cm.update_acc_matrix(new_task_index, performance_list)
-
-    # 若是第一个任务, 不算持续学习指标
-    if len(all_tasks) <= 1:
-        logger.info("[Info] This is the first task, skip any CL metrics.")
-        final_metrics = {}
-    else:
-        # 现在一共学了 len(all_tasks) 个任务
-        k = len(all_tasks)
-        final_metrics = compute_metrics_example(cm, k)
-        logger.info(f"Continual Metrics after learning {k} tasks: {final_metrics}")
-
-    session_info["final_metrics"] = final_metrics
-
-    # ========== 10) 覆盖 train_info["acc_matrix"] 并将 session_info 追加到 train_info["sessions"] ==========
-    train_info["acc_matrix"] = cm.acc_matrix
-    train_info["sessions"].append(session_info)
-
-    # ========== 11) 保存新的 train_info 到 JSON ==========
-    with open(args.train_info_json, "w", encoding="utf-8") as f:
-        json.dump(train_info, f, indent=2)
-    logger.info(f"Updated train_info JSON => {args.train_info_json}")
+        # ========== 11) 保存新的 train_info 到 JSON ==========
+        with open(args.train_info_json, "w", encoding="utf-8") as f:
+            json.dump(train_info, f, indent=2)
+        logger.info(f"Updated train_info JSON => {args.train_info_json}")
+    except Exception as e:
+        logger.error(f"An error occurred during training: {str(e)}", exc_info=True)
 
 
 def parse_args():
