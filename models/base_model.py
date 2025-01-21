@@ -19,9 +19,12 @@ class BaseMultimodalModel(nn.Module):
         :param num_heads: MultiHeadAttention 的头数
         """
         super().__init__()
-
+        proxies = {
+            "http": "socks5://127.0.0.1:1080",
+            "https": "socks5://127.0.0.1:1080"
+        }
         # 文本编码器 (DeBERTa)
-        self.text_encoder = AutoModel.from_pretrained(text_model_name)
+        self.text_encoder = AutoModel.from_pretrained(text_model_name, proxies=proxies)
         self.text_hidden_size = self.text_encoder.config.hidden_size
 
         # 图像编码器 (ResNet)
