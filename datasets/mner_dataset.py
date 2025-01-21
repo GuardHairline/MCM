@@ -45,7 +45,7 @@ class MNERDataset(Dataset):
         for i in range(0, len(lines), 4):
             text_with_T = lines[i]
             entity_str = lines[i+1]
-            entity_type_str = lines[i+2]  # -1..2
+            entity_type_str = lines[i+2]  # -1 0 1 2
             image_name = lines[i+3]
             if not image_name.endswith(".jpg"):
                 image_name += ".jpg"
