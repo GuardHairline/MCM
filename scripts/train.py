@@ -123,6 +123,7 @@ def train(args, logger):
             full_model.train()
             total_loss = 0.0
             label_counter = Counter()
+            is_sequence_task = (args.task_name in ["mate", "mner", "mabsa"])  # 举例
 
             for batch in train_loader:
                 input_ids = batch["input_ids"].to(device)
@@ -135,7 +136,6 @@ def train(args, logger):
                 labels = batch["labels"].to(device)
 
                 optimizer.zero_grad()
-                is_sequence_task = (args.task_name in ["mate", "mner", "mabsa"])  # 举例
 
                 if is_sequence_task:
                     # return_sequence=True
@@ -180,32 +180,41 @@ def train(args, logger):
             dev_metrics = evaluate_single_task(full_model, new_task_name, "dev", device, args)
             dev_metrics_history.append(dev_metrics)
 
-            # early stopping
-            flag_save = False
-            if dev_metrics["accuracy"] > best_dev_acc:
-                best_dev_acc = dev_metrics["accuracy"]
-                no_improve_count = 0
-                flag_save = True
-                torch.save(full_model.state_dict(), "checkpoints/best_model.pt")
-            else:
-                no_improve_count += 1
-                if no_improve_count >= patience:
-                    logger.info(f"[EarlyStopping] Dev accuracy no improve for {patience} epochs.")
-                    break
+            # # early stopping
+            # flag_save = False
+            # if dev_metrics["accuracy"] > best_dev_acc:
+            #     best_dev_acc = dev_metrics["accuracy"]
+            #     no_improve_count = 0
+            #     flag_save = True
+            #     torch.save(full_model.state_dict(), "checkpoints/best_model.pt")
+            # else:
+            #     no_improve_count += 1
+            #     if no_improve_count >= patience:
+            #         logger.info(f"[EarlyStopping] Dev accuracy no improve for {patience} epochs.")
+            #         break
 
             elapsed = (time.time() - t0) / 60
-            logger.info(f"[Task={new_task_name}] Epoch {epoch + 1}/{args.epochs}, "
-                  f"Loss={avg_loss:.4f}, "
-                  f"Acc(micro_f1)={dev_metrics['accuracy']:.2f}%, "
-                  f"Pre_macro={dev_metrics['precision_macro']:.2f}%, "
-                  f"Recall_macro={dev_metrics['recall_macro']:.2f}%, "
-                  f"f1_macro={dev_metrics['f1_macro']:.2f}%, "
-                  f"Epoch processed in {elapsed:.4f} minutes.")
             if is_sequence_task:
-                logger.info(f"LabelDist={label_counter} ")
+                logger.info(f"[Task={new_task_name}] Epoch {epoch + 1}/{args.epochs}, "
+                      f"Loss={avg_loss:.4f}, "
+                      f"Acc(micro_f1)={dev_metrics['accuracy']:.2f}%, "
+                      f"chunk_precision={dev_metrics['chunk_precision']:.2f}%, "
+                      f"chunk_recall={dev_metrics['chunk_recall']:.2f}%, "
+                      f"chunk_f1={dev_metrics['chunk_f1']:.2f}%, "
+                      f"Epoch processed in {elapsed:.4f} minutes.")
+            else:
+                logger.info(f"[Task={new_task_name}] Epoch {epoch + 1}/{args.epochs}, "
+                      f"Loss={avg_loss:.4f}, "
+                      f"Acc(micro_f1)={dev_metrics['accuracy']:.2f}%, "
+                      f"Pre_macro={dev_metrics['precision_macro']:.2f}%, "
+                      f"Recall_macro={dev_metrics['recall_macro']:.2f}%, "
+                      f"f1_macro={dev_metrics['f1_macro']:.2f}%, "
+                      f"LabelDist={label_counter}%, "
+                      f"Epoch processed in {elapsed:.4f} minutes.")
 
         # ========== 6) 用最佳模型做最终 dev/test 测试 ==========
-        if os.path.exists("checkpoints/best_model.pt") and flag_save:
+        # if os.path.exists("checkpoints/best_model.pt") and flag_save:
+        if os.path.exists("checkpoints/best_model.pt"):
             full_model.load_state_dict(torch.load("checkpoints/best_model.pt"))
         final_dev_metrics = evaluate_single_task(full_model, new_task_name, "dev", device, args)
         final_test_metrics = evaluate_single_task(full_model, new_task_name, "test", device, args)

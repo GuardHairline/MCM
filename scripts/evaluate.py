@@ -4,6 +4,8 @@ from torch.utils.data import DataLoader
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 
 from datasets.get_dataset import get_dataset
+from utils.decode import decode_mate, decode_mner, decode_mabsa
+
 def evaluate_single_task(model, task_name, split, device, args):
     """
     对指定任务的 {split} (dev/test) 数据集进行评估，返回准确率(%)。
@@ -11,10 +13,16 @@ def evaluate_single_task(model, task_name, split, device, args):
     ds = get_dataset(task_name, split, args)
     loader = DataLoader(ds, batch_size=args.batch_size, shuffle=False)
     model.eval()
-    all_preds = []
-    all_labels = []
 
     is_sequence_task = (task_name in ["mate", "mner", "mabsa"])
+
+    # 用于 token-level (或句级) 计算
+    all_preds_token = []
+    all_labels_token = []
+
+    # 用于 chunk-level 计算
+    all_chunks_pred = []
+    all_chunks_gold = []
 
     with torch.no_grad():
         for batch in loader:
@@ -34,55 +42,100 @@ def evaluate_single_task(model, task_name, split, device, args):
                 # preds => [batch_size, seq_len]
                 preds = torch.argmax(logits, dim=2)
 
-                # flatten & filter掉 -100
-                preds_np = preds.cpu().numpy()
-                labels_np = labels.cpu().numpy()
-                valid_mask = (labels_np != -100)  # boolean mask
+                # 将它们 flatten (含-100) 以计算 token-level 参考指标
+                all_preds_token.extend(preds.view(-1).cpu().tolist())
+                all_labels_token.extend(labels.view(-1).cpu().tolist())
 
-                # 把有效的预测和标签展平
-                all_preds.extend(preds_np[valid_mask].tolist())
-                all_labels.extend(labels_np[valid_mask].tolist())
+                # 开始做 chunk-level decode
+                bsz, seqlen = preds.shape
+                for i in range(bsz):
+                    # 过滤 -100
+                    valid_len = (labels[i] != -100).sum().item()
+                    pred_i = preds[i, :valid_len].cpu().tolist()
+                    gold_i = labels[i, :valid_len].cpu().tolist()
+
+                    if task_name == "mate":
+                        pred_chunks = decode_mate(pred_i)
+                        gold_chunks = decode_mate(gold_i)
+                    elif task_name == "mner":
+                        pred_chunks = decode_mner(pred_i)
+                        gold_chunks = decode_mner(gold_i)
+                    elif task_name == "mabsa":
+                        pred_chunks = decode_mabsa(pred_i)
+                        gold_chunks = decode_mabsa(gold_i)
+                    else:
+                        pred_chunks = set()
+                        gold_chunks = set()
+
+                    all_chunks_pred.append(pred_chunks)
+                    all_chunks_gold.append(gold_chunks)
 
             else:
-                fused_feat = model.base_model(input_ids, attention_mask, token_type_ids, image_tensor, return_sequence=False)
-                logits = model.head(fused_feat)
-                # 句级分类 => logits: [batch_size, num_labels]
-                # preds => [batch_size]
+                # === 句级分类 ===
+                fused_cls = model.base_model(input_ids, attention_mask, token_type_ids, image_tensor,
+                                             return_sequence=False)
+                logits = model.head(fused_cls)  # => (b, num_labels)
                 preds = torch.argmax(logits, dim=1)
-                all_preds.extend(preds.cpu().numpy().tolist())
-                all_labels.extend(labels.cpu().numpy().tolist())
+                all_preds_token.extend(preds.cpu().tolist())
+                all_labels_token.extend(labels.cpu().tolist())
 
-    # 计算 Accuracy
-    accuracy = accuracy_score(all_labels, all_preds)
+    # === token-level or 句级 ACC ===
+    # 先过滤掉 -100
+    valid_preds = []
+    valid_labels = []
+    for p, g in zip(all_preds_token, all_labels_token):
+        if g != -100:
+            valid_preds.append(p)
+            valid_labels.append(g)
+    token_acc = accuracy_score(valid_labels, valid_preds)
 
-    # 计算 Precision / Recall / F1
-    # average='macro' 表示对每个类分别计算，再平均；'micro' 考虑整体
-    precision_macro, recall_macro, f1_macro, _ = precision_recall_fscore_support(
-        all_labels, all_preds, average='macro', zero_division=0
-    )
-    precision_micro, recall_micro, f1_micro, _ = precision_recall_fscore_support(
-        all_labels, all_preds, average='micro', zero_division=0
-    )
+    if is_sequence_task:
+        # 计算 chunk-level P/R/F1
+        tp, fp, fn = 0, 0, 0
+        for pset, gset in zip(all_chunks_pred, all_chunks_gold):
+            tp_ = len(pset.intersection(gset))
+            fp_ = len(pset - gset)
+            fn_ = len(gset - pset)
+            tp += tp_
+            fp += fp_
+            fn += fn_
+        prec = tp/(tp+fp) if (tp+fp)>0 else 0.0
+        rec = tp/(tp+fn) if (tp+fn)>0 else 0.0
+        f1 = 2*prec*rec/(prec+rec) if (prec+rec)>0 else 0.0
 
-    return {
-        "accuracy": accuracy * 100.0,  # 转成百分比
-        "precision_macro": precision_macro * 100.0,
-        "recall_macro": recall_macro * 100.0,
-        "f1_macro": f1_macro * 100.0,
-        "precision_micro": precision_micro * 100.0,
-        "recall_micro": recall_micro * 100.0,
-        "f1_micro": f1_micro * 100.0
-    }
+        metrics = {
+            "token_acc": token_acc * 100.0,
+            "chunk_precision": prec * 100.0,
+            "chunk_recall": rec * 100.0,
+            "chunk_f1": f1 * 100.0
+        }
+        metrics["accuracy"] = metrics["chunk_f1"]  # 或者用token_acc
+
+    else:
+        # 句级分类
+        precision_macro, recall_macro, f1_macro, _ = precision_recall_fscore_support(
+            all_labels_token, all_preds_token, average='macro', zero_division=0
+        )
+        acc = accuracy_score(all_labels_token, all_preds_token)
+        metrics = {
+            "accuracy": acc * 100.0,
+            "precision_macro": precision_macro * 100.0,
+            "recall_macro": recall_macro * 100.0,
+            "f1_macro": f1_macro * 100.0,
+        }
+
+    return metrics
 
 
 def evaluate_all_learned_tasks(model, task_list, device, args):
-    """
-    对当前模型在 'task_list' 里所有任务的 test 数据集进行评估，返回 [acc_task1, acc_task2, ...].
-    """
     acc_list = []
     for tname in task_list:
-        metrics_dict = evaluate_single_task(model, tname, "test", device, args)
-        acc_list.append(metrics_dict["accuracy"])
+        m = evaluate_single_task(model, tname, "test", device, args)
+        # 你可取 chunk_f1 或 accuracy 作为acc
+        if tname in ["mate", "mner", "mabsa"]:
+            acc_list.append(m["chunk_f1"])
+        else:
+            acc_list.append(m["accuracy"])
     return acc_list
 
 
