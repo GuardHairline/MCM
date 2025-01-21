@@ -1,5 +1,5 @@
 from datasets.mabsa_dataset import MABSADataset
-from datasets.re_dataset import REDataset
+from datasets.mnre_dataset import MNREDataset
 from datasets.masc_dataset import MASCDataset
 from datasets.mate_dataset import MATEDataset
 from datasets.mner_dataset import MNERDataset
@@ -27,8 +27,8 @@ def get_dataset(task, split, args):
             image_dir=image_dir,
             tokenizer_name=args.text_model_name
         )
-    elif task == "re":
-        return REDataset(
+    elif task == "mnre":
+        return MNREDataset(
             text_file=text_file,
             image_dir=image_dir,
             tokenizer_name=args.text_model_name
