@@ -6,7 +6,7 @@ from transformers import AutoTokenizer
 from PIL import Image
 import torchvision.transforms as transforms
 
-class MABSAEnd2EndDataset(Dataset):
+class MABSADataset(Dataset):
     """
     MABSA: End-to-End.
     假设1个样本1个aspect(但可扩展).
