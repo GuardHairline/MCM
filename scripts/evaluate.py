@@ -26,9 +26,10 @@ def evaluate_single_task(model, task_name, split, device, args):
             image_tensor = batch["image_tensor"].to(device)
             labels = batch["labels"].to(device)
 
-            logits = model(input_ids, attention_mask, token_type_ids, image_tensor)
 
             if is_sequence_task:
+                fused_feat = model.base_model(input_ids, attention_mask, token_type_ids, image_tensor, return_sequence=True)
+                logits = model.head(fused_feat)
                 # logits: [batch_size, seq_len, num_labels]
                 # preds => [batch_size, seq_len]
                 preds = torch.argmax(logits, dim=2)
@@ -43,6 +44,8 @@ def evaluate_single_task(model, task_name, split, device, args):
                 all_labels.extend(labels_np[valid_mask].tolist())
 
             else:
+                fused_feat = model.base_model(input_ids, attention_mask, token_type_ids, image_tensor, return_sequence=False)
+                logits = model.head(fused_feat)
                 # 句级分类 => logits: [batch_size, num_labels]
                 # preds => [batch_size]
                 preds = torch.argmax(logits, dim=1)
