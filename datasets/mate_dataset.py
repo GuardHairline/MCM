@@ -45,8 +45,6 @@ class MATEDataset(Dataset):
             lines = [l.strip() for l in f.readlines()]
         assert len(lines) % 4 == 0, "MATE 数据格式有误，每条样本应占4行。"
 
-        samples = []
-
         for i in range(0, len(lines), 4):
             text_with_T = lines[i]
             aspect_term = lines[i + 1]
@@ -68,9 +66,9 @@ class MATEDataset(Dataset):
 
 
         if "$T$" in text_with_T:
-            start_pos = text_with_T.index("$T$")
-            end_pos = start_pos + len(aspect_term) - 1
             replaced_text = text_with_T.replace("$T$", aspect_term)
+            start_pos = replaced_text.index(aspect_term)
+            end_pos = start_pos + len(aspect_term) - 1
         else:
             replaced_text = text_with_T  # 若无 $T$, 也可直接拼
             start_pos = -1
@@ -100,11 +98,20 @@ class MATEDataset(Dataset):
                 # 特殊token [CLS], [SEP], or padding
                 label_ids.append(-100)
             else:
-                sub_chars = char_label[start_char:end_char]
-                if len(sub_chars) == 0:
-                    label_ids.append(-100)
+                sub_labels  = char_label[start_char:end_char]
+                valid_labels = [l for l in sub_labels if l != 0]
+
+                if not valid_labels:
+                    label_id = 0  # 无有效标签，标记为 O
                 else:
-                    label_ids.append(sub_chars[0])  # 取第一个字符的标签
+                    # 策略1: 取出现最多的标签
+                    # label_id = Counter(valid_labels).most_common(1)[0][0]
+
+                    # 策略2: B 标签优先（若存在 B 则覆盖 I）
+                    label_id = 1 if 1 in valid_labels else (
+                        2 if 2 in valid_labels else 0
+                    )
+                label_ids.append(label_id)
 
         encoded.pop("offset_mapping")
 

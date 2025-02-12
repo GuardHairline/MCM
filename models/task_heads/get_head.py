@@ -30,7 +30,8 @@ def get_head(task, base_model, args):
     elif task == "mate":
         return MATEHead(
             input_dim=base_model.fusion_output_dim,
-            num_labels=args.num_labels
+            num_labels=args.num_labels,
+            dropout_prob=args.dropout_prob  # 传入 dropout 参数
         )
     elif task == "masc":
         return MASCHead(
