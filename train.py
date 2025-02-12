@@ -59,6 +59,13 @@ def train(args, logger):
     if "sessions" not in train_info:
         train_info["sessions"] = []
 
+    # 获取类别权重 (用于处理类别不平衡)
+    class_weights = None
+    if new_task_name == "mate":
+        # 假设类别为 [O, B, I]，如果 B 和 I 类较少，可以增加它们的权重
+        class_weights = torch.tensor([1.0, 5.0, 5.0]).to(device)  # O: 1.0, B: 5.0, I: 5.0
+
+
     # 旧任务数量
     old_tasks = train_info["tasks"]  # list[str]
     old_task_count = len(old_tasks)
@@ -146,12 +153,22 @@ def train(args, logger):
                     )
                     logits = full_model.head(fused_feat)  # => (batch_size, seq_len, num_labels)
 
-                    # cross entropy
-                    loss = nn.functional.cross_entropy(
-                        logits.view(-1, args.num_labels),
-                        labels.view(-1),
-                        ignore_index=-100
-                    )
+                    if args.task_name == "mate":
+                        # 针对 MATE 任务，由于 token 分布不均，采用加权交叉熵
+                        # 假设标签映射：O->0, B->1, I->2；此处权重可根据实际情况调整
+                        class_weights = torch.tensor([0.5, 8.8, 8.8], device=device)
+                        loss = nn.functional.cross_entropy(
+                            logits.view(-1, args.num_labels),
+                            labels.view(-1),
+                            weight=class_weights,
+                            ignore_index=-100
+                        )
+                    else:
+                        loss = nn.functional.cross_entropy(
+                            logits.view(-1, args.num_labels),
+                            labels.view(-1),
+                            ignore_index=-100
+                        )
                 else:
                     # 句级分类: return_sequence=False => (batch_size, fusion_dim)
                     fused_feat = full_model.base_model(
