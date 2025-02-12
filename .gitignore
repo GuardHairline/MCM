@@ -23,3 +23,4 @@ log/
 data/
 
 **/__pycache__/
+downloaded_model/
