@@ -150,7 +150,7 @@ def train(args, logger):
                     if args.task_name == "mate":
                         # 针对 MATE 任务，由于 token 分布不均，采用加权交叉熵
                         # 假设标签映射：O->0, B->1, I->2；此处权重可根据实际情况调整
-                        class_weights = torch.tensor([1.0, 20.0, 20.0], device=device)
+                        class_weights = torch.tensor([1.0, 15.0, 15.0], device=device)
                         loss = nn.functional.cross_entropy(
                             logits.view(-1, args.num_labels),
                             labels.view(-1),
