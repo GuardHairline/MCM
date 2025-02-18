@@ -1,4 +1,6 @@
 # scripts/evaluate.py
+from collections import Counter
+
 import torch
 from torch.utils.data import DataLoader
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
@@ -28,7 +30,7 @@ def evaluate_single_task(model, task_name, split, device, args):
 
 
     # ======== 新增：用于只打印前 n 条 Debug ========
-    debug_print_limit = 6
+    debug_print_limit = 20
     debug_print_count = 0
 
     # 获取 tokenizer 如果需要可视化 token
@@ -44,6 +46,7 @@ def evaluate_single_task(model, task_name, split, device, args):
         except:
             tokenizer = None
 
+    label_counter = Counter()
     with torch.no_grad():
         for batch in loader:
             input_ids = batch["input_ids"].to(device)
@@ -56,6 +59,11 @@ def evaluate_single_task(model, task_name, split, device, args):
 
 
             if is_sequence_task:
+                # 统计标签数量（排除-100）
+                for label in labels.view(-1).cpu().tolist():
+                    if label != -100:
+                        label_counter[label] += 1
+
                 fused_feat = model.base_model(input_ids, attention_mask, token_type_ids, image_tensor, return_sequence=True)
                 logits = model.head(fused_feat)
                 # logits: [batch_size, seq_len, num_labels]
@@ -70,7 +78,7 @@ def evaluate_single_task(model, task_name, split, device, args):
                 bsz, seqlen = preds.shape
                 for i in range(bsz):
                     # 过滤 -100
-                    valid_len = (labels[i] != -100).sum().item()
+                    valid_len = (labels[i] != -100).sum().item() + 1
                     pred_i = preds[i, :valid_len].cpu().tolist()
                     gold_i = labels[i, :valid_len].cpu().tolist()
 
@@ -113,6 +121,7 @@ def evaluate_single_task(model, task_name, split, device, args):
                         logger.info(f"Pred chunks: {pred_chunks}")
             else:
                 # === 句级分类 ===
+                label_counter.update(labels.cpu().tolist())
                 fused_cls = model.base_model(input_ids, attention_mask, token_type_ids, image_tensor,
                                              return_sequence=False)
                 logits = model.head(fused_cls)  # => (b, num_labels)
@@ -164,7 +173,9 @@ def evaluate_single_task(model, task_name, split, device, args):
             "recall_macro": recall_macro * 100.0,
             "f1_macro": f1_macro * 100.0,
         }
-
+    # 在函数结束时打印或返回标签分布
+    logger.info(f"Label Distribution for {task_name} {split}: {label_counter}")
+    metrics["label_counter"] = label_counter  # 如果需要将统计结果返回
     return metrics
 
 
