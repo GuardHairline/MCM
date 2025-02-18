@@ -28,23 +28,23 @@ def evaluate_single_task(model, task_name, split, device, args):
     all_chunks_pred = []
     all_chunks_gold = []
 
-
-    # ======== 新增：用于只打印前 n 条 Debug ========
-    debug_print_limit = 20
-    debug_print_count = 0
-
-    # 获取 tokenizer 如果需要可视化 token
-    # (这里假设 model.base_model.text_encoder 是一个 huggingface AutoModel,
-    #  需要你自己根据项目结构拿到 tokenizer 或在 dataset 里存.
-    #  如果此处无法直接拿到, 也可在 dataset 那边保留 'raw_text' 用于打印)
-    tokenizer = None
-    if hasattr(model.base_model, "text_encoder") and hasattr(model.base_model.text_encoder, "config"):
-        from transformers import AutoTokenizer
-        tokenizer_name = model.base_model.text_encoder.name_or_path  # 可能要看看属性是什么
-        try:
-            tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-        except:
-            tokenizer = None
+    #
+    # # ======== 新增：用于只打印前 n 条 Debug ========
+    # debug_print_limit = 20
+    # debug_print_count = 0
+    #
+    # # 获取 tokenizer 如果需要可视化 token
+    # # (这里假设 model.base_model.text_encoder 是一个 huggingface AutoModel,
+    # #  需要你自己根据项目结构拿到 tokenizer 或在 dataset 里存.
+    # #  如果此处无法直接拿到, 也可在 dataset 那边保留 'raw_text' 用于打印)
+    # tokenizer = None
+    # if hasattr(model.base_model, "text_encoder") and hasattr(model.base_model.text_encoder, "config"):
+    #     from transformers import AutoTokenizer
+    #     tokenizer_name = model.base_model.text_encoder.name_or_path  # 可能要看看属性是什么
+    #     try:
+    #         tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+    #     except:
+    #         tokenizer = None
 
     label_counter = Counter()
     with torch.no_grad():
@@ -98,27 +98,27 @@ def evaluate_single_task(model, task_name, split, device, args):
                     all_chunks_pred.append(pred_chunks)
                     all_chunks_gold.append(gold_chunks)
 
-                    # ========== Debug Print: 只打印前 debug_print_limit 条 ==========
-                    if debug_print_count < debug_print_limit:
-                        debug_print_count += 1
-                        logger.info(f"\n========== [DEBUG] Sample #{debug_print_count}  ==========")
-
-                        # 如果能拿到 tokenizer，就把 input_ids -> tokens
-                        if tokenizer:
-                            # 取对应的 input_ids[i,:valid_len]
-                            input_ids_i = input_ids[i, :valid_len].cpu().tolist()
-                            tokens = tokenizer.convert_ids_to_tokens(input_ids_i, skip_special_tokens=False)
-                            # 打印 tokens + gold + pred
-                            logger.info("Tokens:")
-                            for tk_idx, tk in enumerate(tokens):
-                                logger.info(f"  idx={tk_idx}, token={tk}, gold={gold_i[tk_idx]}, pred={pred_i[tk_idx]}")
-                        else:
-                            logger.info(f"input_ids: {input_ids[i, :valid_len].cpu().tolist()}")
-                            logger.info(f"gold: {gold_i}")
-                            logger.info(f"pred: {pred_i}")
-
-                        logger.info(f"Gold chunks: {gold_chunks}")
-                        logger.info(f"Pred chunks: {pred_chunks}")
+                    # # ========== Debug Print: 只打印前 debug_print_limit 条 ==========
+                    # if debug_print_count < debug_print_limit:
+                    #     debug_print_count += 1
+                    #     logger.info(f"\n========== [DEBUG] Sample #{debug_print_count}  ==========")
+                    #
+                    #     # 如果能拿到 tokenizer，就把 input_ids -> tokens
+                    #     if tokenizer:
+                    #         # 取对应的 input_ids[i,:valid_len]
+                    #         input_ids_i = input_ids[i, :valid_len].cpu().tolist()
+                    #         tokens = tokenizer.convert_ids_to_tokens(input_ids_i, skip_special_tokens=False)
+                    #         # 打印 tokens + gold + pred
+                    #         logger.info("Tokens:")
+                    #         for tk_idx, tk in enumerate(tokens):
+                    #             logger.info(f"  idx={tk_idx}, token={tk}, gold={gold_i[tk_idx]}, pred={pred_i[tk_idx]}")
+                    #     else:
+                    #         logger.info(f"input_ids: {input_ids[i, :valid_len].cpu().tolist()}")
+                    #         logger.info(f"gold: {gold_i}")
+                    #         logger.info(f"pred: {pred_i}")
+                    #
+                    #     logger.info(f"Gold chunks: {gold_chunks}")
+                    #     logger.info(f"Pred chunks: {pred_chunks}")
             else:
                 # === 句级分类 ===
                 label_counter.update(labels.cpu().tolist())
