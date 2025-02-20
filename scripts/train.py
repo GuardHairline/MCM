@@ -303,7 +303,7 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--num_labels", type=int, default=3)  # -1, 0, 1
     parser.add_argument("--hidden_dim", type=int, default=768)
-    parser.add_argument("--mode", type=int, default="multimodal")  # text_only / multimodal
+    parser.add_argument("--mode", type=str, default="multimodal")  # text_only / multimodal
     parser.add_argument("--strategy", type=str, default="ewc")  # ewc / none ...
     parser.add_argument("--ewc_lambda", type=float, default=1000)
 
