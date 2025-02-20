@@ -11,7 +11,8 @@ class BaseMultimodalModel(nn.Module):
                  hidden_dim=768,
                  multimodal_fusion="multi_head_attention",
                  num_heads=8,
-                 mode="multimodal"):
+                 mode="multimodal",
+                 dropout_prob=0.1):
         """
         :param text_model_name: 文本编码器预训练模型，如 'microsoft/deberta-v3-base'
         :param image_model_name: 图像编码器，如 'resnet50'
@@ -42,25 +43,23 @@ class BaseMultimodalModel(nn.Module):
         self.fusion_strategy = multimodal_fusion
         self.mode = mode
 
-        if self.fusion_strategy == "concat":
-            self.fusion_output_dim = self.text_hidden_size * 2
-        elif self.fusion_strategy == "multi_head_attention":
+        if self.fusion_strategy == "multi_head_attention":
             self.fusion_output_dim = self.text_hidden_size
             # 定义multi-head attention层
             self.mha = nn.MultiheadAttention(embed_dim=self.text_hidden_size,
                                              num_heads=num_heads,
                                              batch_first=False)
             # batch_first=False => 输入形状 [seq_len, batch_size, embed_dim]
+        elif self.fusion_strategy == "concat":
+            self.fusion_output_dim = self.text_hidden_size * 2
         elif self.fusion_strategy == "add":
             self.fusion_output_dim = self.text_hidden_size
         else:
             self.fusion_output_dim = self.text_hidden_size  # fallback
 
-        # Transformer 层（用于增强多模态融合的表达能力）
-        self.transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=self.fusion_output_dim, nhead=num_heads),
-            num_layers=4  # Transformer层数
-        )
+        self.dropout = nn.Dropout(dropout_prob)
+        self.fc = nn.Linear(self.fusion_output_dim, self.text_hidden_size)  # Final linear layer for output
+
     def forward(self, input_ids, attention_mask, token_type_ids, image_tensor, return_sequence=False):
         """
         :param return_sequence: 为 True 时，返回序列特征 (batch_size, seq_len, fusion_dim)
@@ -93,7 +92,27 @@ class BaseMultimodalModel(nn.Module):
         img_feat = self.image_proj(img_feat)           # [batch_size, text_hidden_size]
 
         # ====== 多模态融合 ======
-        if self.fusion_strategy == "concat":
+        if self.fusion_strategy == "multi_head_attention":
+            # 在图像和文本之间进行双向多头注意力融合
+            text_seq = text_sequence.transpose(0, 1)  # 转换为[seq_len, batch_size, hidden_size]
+            img_seq = img_feat.unsqueeze(0)  # [1, batch_size, hidden_size]
+
+            # 图像和文本模态之间的交互
+            text_attention_output, _ = self.mha(query=text_seq, key=img_seq, value=img_seq)
+            img_attention_output, _ = self.mha(query=img_seq, key=text_seq, value=text_seq)
+
+            # 融合输出：我们将两个模态的结果拼接在一起并做进一步处理
+            combined_output = torch.cat([text_attention_output.transpose(0, 1), img_attention_output.squeeze(0)], dim=-1)
+
+            if return_sequence:
+                return combined_output
+            else:
+                # 只返回句子级别的输出（即[CLS]向量的融合）
+                combined_cls = combined_output[:, 0, :]
+                return combined_cls
+
+
+        elif self.fusion_strategy == "concat":
             if return_sequence:
                 # 将图像特征 broadcast 后拼接到每个 token
                 # img_feat.unsqueeze(1) => [batch_size, 1, hidden_size]
@@ -104,28 +123,6 @@ class BaseMultimodalModel(nn.Module):
             else:
                 # 只返回 CLS
                 fused_cls = torch.cat([text_cls, img_feat], dim=-1)  # (b, hidden_size*2)
-                return fused_cls
-
-        elif self.fusion_strategy == "multi_head_attention":
-            # 注意：目前的 MHA 代码只展示“句向量 + 图像向量”的示例
-            # 若要对序列中每个 token 都做 cross-attention，需要更改 key/value 的序列长度
-            if return_sequence:
-                # 这里简单示例：对 text_sequence 的所有 token 做“图像向量为 key/value”的跨注意力
-                # text_seq => [seq_len, batch_size, hidden_size]
-                text_seq = text_sequence.transpose(0, 1)
-                # img_seq  => [1, batch_size, hidden_size]
-                img_seq = img_feat.unsqueeze(0)
-
-                out_seq, _ = self.mha(query=text_seq, key=img_seq, value=img_seq)
-                # [seq_len, batch_size, hidden_size] => 转回 (b, seq_len, hidden_size)
-                out_seq = out_seq.transpose(0, 1)
-                return out_seq
-            else:
-                # 只处理 CLS
-                text_seq = text_cls.unsqueeze(0)  # [1, batch_size, hidden_size]
-                img_seq = img_feat.unsqueeze(0)  # [1, batch_size, hidden_size]
-                out_seq, _ = self.mha(query=text_seq, key=img_seq, value=img_seq)
-                fused_cls = out_seq.squeeze(0)  # (batch_size, hidden_size)
                 return fused_cls
 
         elif self.fusion_strategy == "add":
