@@ -55,6 +55,7 @@ class BaseMultimodalModel(nn.Module):
             self.fusion_output_dim = self.text_hidden_size
         else:
             self.fusion_output_dim = self.text_hidden_size  # fallback
+
         # Transformer 层（用于增强多模态融合的表达能力）
         self.transformer = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(d_model=self.fusion_output_dim, nhead=num_heads),
@@ -84,7 +85,7 @@ class BaseMultimodalModel(nn.Module):
 
         if self.mode == "text_only":
             # 只使用文本模态，返回文本的[CLS]向量
-            return text_cls
+            return text_sequence
 
         # ====== 图像特征 ======
         img_feat = self.image_encoder(image_tensor)  # shape [batch_size, 2048, 1, 1]
