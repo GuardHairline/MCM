@@ -85,7 +85,8 @@ def train(args, logger):
         args.text_model_name,
         args.image_model_name,
         multimodal_fusion=args.fusion_strategy,
-        num_heads=args.num_heads
+        num_heads=args.num_heads,
+        mode=args.mode
     )
     if args.pretrained_model_path and os.path.exists(args.pretrained_model_path):
         logger.info(f"Loading pretrained base_model from {args.pretrained_model_path}")
@@ -302,6 +303,7 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--num_labels", type=int, default=3)  # -1, 0, 1
     parser.add_argument("--hidden_dim", type=int, default=768)
+    parser.add_argument("--mode", type=int, default="multimodal")  # text_only / multimodal
     parser.add_argument("--strategy", type=str, default="ewc")  # ewc / none ...
     parser.add_argument("--ewc_lambda", type=float, default=1000)
 

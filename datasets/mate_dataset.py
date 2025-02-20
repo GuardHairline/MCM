@@ -120,6 +120,11 @@ class MATEDataset(Dataset):
 
         image_tensor = self._load_image(image_path)
 
+        # print(f"replaced_text: {replaced_text}")
+        # print(f"aspect_term: {aspect_term}")
+        # print(f"char_label: {char_label}")
+        # print(f"label_ids: {label_ids}")
+
         out_item = {
             "input_ids": torch.tensor(encoded["input_ids"], dtype=torch.long),
             "attention_mask": torch.tensor(encoded["attention_mask"], dtype=torch.long),

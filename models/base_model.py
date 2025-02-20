@@ -10,13 +10,15 @@ class BaseMultimodalModel(nn.Module):
                  image_model_name="resnet50",
                  hidden_dim=768,
                  multimodal_fusion="multi_head_attention",
-                 num_heads=8):
+                 num_heads=8,
+                 mode="multimodal"):
         """
         :param text_model_name: 文本编码器预训练模型，如 'microsoft/deberta-v3-base'
         :param image_model_name: 图像编码器，如 'resnet50'
         :param hidden_dim: 用于投影或中间处理的维度 (通常与 text_hidden_size 相同)
         :param multimodal_fusion: 融合策略，支持 'concat' 或 'multi_head_attention' 等
         :param num_heads: MultiHeadAttention 的头数
+        :param mode: "text_only" 或 "multimodal"，指定是否使用图像数据
         """
         super().__init__()
 
@@ -38,6 +40,8 @@ class BaseMultimodalModel(nn.Module):
 
         # 如果需要进一步融合，可再定义一个 cross-attention 或者简单 linear
         self.fusion_strategy = multimodal_fusion
+        self.mode = mode
+
         if self.fusion_strategy == "concat":
             self.fusion_output_dim = self.text_hidden_size * 2
         elif self.fusion_strategy == "multi_head_attention":
@@ -51,7 +55,11 @@ class BaseMultimodalModel(nn.Module):
             self.fusion_output_dim = self.text_hidden_size
         else:
             self.fusion_output_dim = self.text_hidden_size  # fallback
-
+        # Transformer 层（用于增强多模态融合的表达能力）
+        self.transformer = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(d_model=self.fusion_output_dim, nhead=num_heads),
+            num_layers=4  # Transformer层数
+        )
     def forward(self, input_ids, attention_mask, token_type_ids, image_tensor, return_sequence=False):
         """
         :param return_sequence: 为 True 时，返回序列特征 (batch_size, seq_len, fusion_dim)
@@ -73,6 +81,10 @@ class BaseMultimodalModel(nn.Module):
         text_sequence = text_outputs.last_hidden_state
         # [CLS] 向量
         text_cls = text_sequence[:, 0, :]  # (batch_size, hidden_size)
+
+        if self.mode == "text_only":
+            # 只使用文本模态，返回文本的[CLS]向量
+            return text_cls
 
         # ====== 图像特征 ======
         img_feat = self.image_encoder(image_tensor)  # shape [batch_size, 2048, 1, 1]
@@ -123,7 +135,3 @@ class BaseMultimodalModel(nn.Module):
             else:
                 fused_cls = text_cls + img_feat
                 return fused_cls
-
-        else:
-            # 默认仅返回 text_cls
-            return text_cls
