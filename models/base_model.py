@@ -101,14 +101,13 @@ class BaseMultimodalModel(nn.Module):
             text_attention_output, _ = self.mha(query=text_seq, key=img_seq, value=img_seq)
             img_attention_output, _ = self.mha(query=img_seq, key=text_seq, value=text_seq)
 
-            # 融合输出：我们将两个模态的结果拼接在一起并做进一步处理
-            combined_output = torch.cat([text_attention_output.transpose(0, 1), img_attention_output.squeeze(0)], dim=-1)
-
+            # 融合输出：拼接两个模态的输出（图像和文本的融合）
             if return_sequence:
-                return combined_output
+                # 确保输出的维度一致
+                return torch.cat([text_attention_output.transpose(0, 1), img_attention_output.squeeze(0).unsqueeze(1)], dim=-1)
             else:
                 # 只返回句子级别的输出（即[CLS]向量的融合）
-                combined_cls = combined_output[:, 0, :]
+                combined_cls = torch.cat([text_attention_output[0, :, :], img_attention_output.squeeze(0)], dim=-1)
                 return combined_cls
 
 
