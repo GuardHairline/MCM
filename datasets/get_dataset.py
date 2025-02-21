@@ -12,8 +12,12 @@ def get_dataset(task, split, args):
     :param args: 参数对象
     :return: 数据集对象
     """
-    text_file = getattr(args, f"{split}_text_file")
-    image_dir = args.image_dir
+    if isinstance(args, dict):
+        text_file = args.get(f"{split}_text_file")
+        image_dir = args.get("image_dir")
+    else:
+        text_file = getattr(args, f"{split}_text_file")
+        image_dir = args.image_dir
 
     if task == "mabsa":
         return MABSADataset(
