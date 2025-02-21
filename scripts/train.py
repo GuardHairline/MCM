@@ -77,7 +77,7 @@ def train(args, logger):
         "epochs": args.epochs,
         "details": {},  # 训练过程中收集的数据
         "final_metrics": None,
-        "args": args
+        "args": vars(args)
     }
 
     # ========== 4) 创建模型 + (可选) EWC 逻辑 ==========
@@ -152,6 +152,14 @@ def train(args, logger):
                         # 针对 MATE 任务，由于 token 分布不均，采用加权交叉熵
                         # 假设标签映射：O->0, B->1, I->2；此处权重可根据实际情况调整
                         class_weights = torch.tensor([1.0, 15.0, 15.0], device=device)
+                        loss = nn.functional.cross_entropy(
+                            logits.view(-1, args.num_labels),
+                            labels.view(-1),
+                            weight=class_weights,
+                            ignore_index=-100
+                        )
+                    elif args.task_name == "mner":
+                        class_weights = torch.tensor([0.1, 164.0, 10.0, 270.0, 27.0, 340.0, 16.0, 360.0, 2.0], device=device)
                         loss = nn.functional.cross_entropy(
                             logits.view(-1, args.num_labels),
                             labels.view(-1),
