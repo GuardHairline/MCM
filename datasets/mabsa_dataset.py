@@ -26,8 +26,8 @@ class MABSADataset(Dataset):
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         self.max_seq_length = max_seq_length
 
-        self.samples = self._read_data()
-
+        self.samples = []
+        self._read_data()
         self.image_transform = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
@@ -36,24 +36,27 @@ class MABSADataset(Dataset):
         ])
 
     def _read_data(self):
+        """
+        读取 text_file 文件，每4行为一个样本：原文、方面词、情感和图像路径。
+        """
         lines = []
         with open(self.text_file, "r", encoding="utf-8") as f:
             lines = [l.strip() for l in f.readlines()]
-        assert len(lines) % 4 == 0, "MABSA格式有误"
+        assert len(lines) % 4 == 0, "MABSA 数据格式有误，每条样本应占4行。"
 
-        samples = []
         for i in range(0, len(lines), 4):
             text_with_T = lines[i]
-            aspect_term = lines[i+1]
-            sentiment_str = lines[i+2]
-            image_name = lines[i+3]
-            sentiment = int(sentiment_str)  # -1->NEG,0->NEU,1->POS
+            aspect_term = lines[i + 1]
+            sentiment_str = lines[i + 2]
+            image_name = lines[i + 3]
+
             if not image_name.endswith(".jpg"):
                 image_name += ".jpg"
             image_path = os.path.join(self.image_dir, image_name)
 
-            samples.append((text_with_T, aspect_term, sentiment, image_path))
-        return samples
+            sentiment = int(sentiment_str)  # -1,0,1
+            self.samples.append((text_with_T, aspect_term, sentiment, image_path))
+
 
     def __len__(self):
         return len(self.samples)
@@ -61,60 +64,80 @@ class MABSADataset(Dataset):
     def __getitem__(self, idx):
         text_with_T, aspect_term, sentiment, image_path = self.samples[idx]
 
+        # 替换 $T$ => aspect_term
         replaced_text = text_with_T.replace("$T$", aspect_term)
-        start_pos = replaced_text.find(aspect_term)
-        end_pos = start_pos + len(aspect_term) - 1
 
-        # sentiment => -1 => NEG= (B=1,I=2), 0 => NEU=(3,4), 1 => POS=(5,6)
-        # O => 0
-        if sentiment == -1:
-            b_val, i_val = 1, 2
-        elif sentiment == 0:
-            b_val, i_val = 3, 4
-        else:  # ==1
-            b_val, i_val = 5, 6
+        # 对每个字/词进行标注（B-情感、I-情感、O）
+        char_label = self._get_char_labels(replaced_text, aspect_term, sentiment)
 
-        char_label = [0]*len(replaced_text)
-        if 0 <= start_pos < len(replaced_text):
-            char_label[start_pos] = b_val
-            for c in range(start_pos+1, end_pos+1):
-                char_label[c] = i_val
+        # Tokenize the text
+        tokenized_input = self.tokenizer(replaced_text,
+                                         max_length=self.max_seq_length,
+                                         padding='max_length',
+                                         truncation=True,
+                                         return_offsets_mapping=True)
+        offsets = tokenized_input["offset_mapping"]
 
-        encoded = self.tokenizer(
-            replaced_text,
-            max_length=self.max_seq_length,
-            padding='max_length',
-            truncation=True,
-            return_offsets_mapping=True
-        )
-        offsets = encoded["offset_mapping"]
-
-        label_ids = []
-        for (start_char, end_char) in offsets:
-            if start_char == end_char:
-                label_ids.append(-100)
-            else:
-                sub_chars = char_label[start_char:end_char]
-                if len(sub_chars) == 0:
-                    label_ids.append(-100)
-                else:
-                    label_ids.append(sub_chars[0])
-
-        encoded.pop("offset_mapping")
+        # Align labels with tokens
+        label_ids = self._align_labels_with_tokens(offsets, char_label)
 
         image_tensor = self._load_image(image_path)
 
-        out_item = {
-            "input_ids": torch.tensor(encoded["input_ids"], dtype=torch.long),
-            "attention_mask": torch.tensor(encoded["attention_mask"], dtype=torch.long),
+        return {
+            "input_ids": torch.tensor(tokenized_input["input_ids"], dtype=torch.long),
+            "attention_mask": torch.tensor(tokenized_input["attention_mask"], dtype=torch.long),
             "labels": torch.tensor(label_ids, dtype=torch.long),
             "image_tensor": image_tensor
         }
-        if "token_type_ids" in encoded:
-            out_item["token_type_ids"] = torch.tensor(encoded["token_type_ids"], dtype=torch.long)
 
-        return out_item
+    def _get_char_labels(self, replaced_text, aspect_term, sentiment):
+        """
+        根据 aspect_term 和 sentiment 生成每个字符的标签。
+        生成标签包括 B 和 I 标签，以及相应的情感。
+        """
+        char_label = [0] * len(replaced_text)  # 0 for O (non-aspect)
 
-    def _load_image(self, path):
-        with Image.open(path).convert("RGB") as img:
+        # 根据 sentiment 生成 B 和 I 标签
+        if aspect_term in replaced_text:
+            start_pos = replaced_text.index(aspect_term)
+            end_pos = start_pos + len(aspect_term) - 1
+            sentiment_label = self._get_sentiment_label(sentiment)
+
+            char_label[start_pos] = sentiment_label[0]  # B-情感
+            for i in range(start_pos + 1, end_pos + 1):
+                char_label[i] = sentiment_label[1]  # I-情感
+
+        return char_label
+
+    def _get_sentiment_label(self, sentiment):
+        """
+        根据情感值返回对应的 B 和 I 标签。
+        -1 -> B-negative, I-negative
+        0 -> B-neutral, I-neutral
+        1 -> B-positive, I-positive
+        """
+        if sentiment == -1:
+            return (3, 4)  # B-negative, I-negative
+        elif sentiment == 0:
+            return (1, 2)  # B-neutral, I-neutral
+        elif sentiment == 1:
+            return (5, 6)  # B-positive, I-positive
+
+    def _align_labels_with_tokens(self, offsets, char_label):
+        """
+        对齐字符级标签与token级标签。
+        """
+        label_ids = []
+        for start_char, end_char in offsets:
+            if start_char == end_char:
+                label_ids.append(-100)  # Special tokens (CLS, SEP)
+            else:
+                sub_labels = char_label[start_char:end_char]
+                valid_labels = [l for l in sub_labels if l != 0]
+                label_ids.append(valid_labels[0] if valid_labels else 0)  # Use O if no valid label
+
+        return label_ids
+
+    def _load_image(self, image_path):
+        with Image.open(image_path).convert("RGB") as img:
             return self.image_transform(img)

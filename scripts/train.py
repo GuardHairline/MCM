@@ -166,6 +166,14 @@ def train(args, logger):
                             weight=class_weights,
                             ignore_index=-100
                         )
+                    elif args.task_name == "mabsa":
+                        class_weights = torch.tensor([1.0, 3700.0, 234.0, 480.0, 34.0, 786.0, 69.0], device=device)
+                        loss = nn.functional.cross_entropy(
+                            logits.view(-1, args.num_labels),
+                            labels.view(-1),
+                            weight=class_weights,
+                            ignore_index=-100
+                        )
                     else:
                         loss = nn.functional.cross_entropy(
                             logits.view(-1, args.num_labels),
