@@ -171,6 +171,7 @@ def train(args, logger):
                         return_sequence=False
                     )
                     logits = full_model.head(fused_feat)  # => (batch_size, num_labels)
+
                     loss = nn.functional.cross_entropy(logits, labels)  # => (batch_size)
                     label_counter.update(labels.cpu().numpy())
 
