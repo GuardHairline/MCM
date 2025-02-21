@@ -59,11 +59,10 @@ def train(args, logger):
     if "sessions" not in train_info:
         train_info["sessions"] = []
 
-
     # 旧任务数量
-    old_tasks = train_info["tasks"]  # list[str]
-    old_task_count = len(old_tasks)
-    logger.info(f"Previously learned tasks: {old_tasks} (count={old_task_count})")
+    old_sessions = train_info["sessions"]  # list[str]
+    old_sessions_count = len(old_sessions)
+    logger.info(f"Previously learned sessions: {old_sessions} (count={old_sessions_count})")
 
     # ========== 2) 将 train_info["acc_matrix"] 载入到 ContinualMetrics 里 ==========
     cm = ContinualMetrics()
@@ -78,6 +77,7 @@ def train(args, logger):
         "epochs": args.epochs,
         "details": {},  # 训练过程中收集的数据
         "final_metrics": None,
+        "args": args
     }
 
     # ========== 4) 创建模型 + (可选) EWC 逻辑 ==========
@@ -98,7 +98,7 @@ def train(args, logger):
 
     # 若不是第一次，则可以加载 EWC fisher
     ewc = None
-    if old_task_count > 0 and args.strategy == "ewc":
+    if old_sessions_count > 0 and args.strategy == "ewc":
         ewc = MultiTaskEWC(
             model=full_model,
             current_task_name=new_task_name,
@@ -247,24 +247,24 @@ def train(args, logger):
         logger.info(f"Final model saved => {args.output_model_path}")
 
         # ========== 9) 将本任务追加到旧任务列表中，并计算 a_{k,j} ==========
-        #    只有当不是首次训练(即 old_task_count >= 1)，才计算多任务指标
-        new_task_index = old_task_count  # 0-based
+        #    只有当不是首次训练(即 old_sessions_count >= 1)，才计算多任务指标
+        new_task_index = old_sessions_count  # 0-based
         train_info["tasks"].append(new_task_name)
 
         # 评估之前所有任务 + 本任务
-        all_tasks = train_info["tasks"]  # 现在长度 = old_task_count + 1
-        performance_list = evaluate_all_learned_tasks(full_model, all_tasks, device, args)
+        all_sessions = train_info["sessions"]  # 现在长度 = old_sessions_count + 1
+        performance_list = evaluate_all_learned_tasks(full_model, all_sessions, device, train_info)
         # => [acc_task1, acc_task2, ..., acc_task(new)]
         # 在 cm.acc_matrix 中的行索引就是 new_task_index
         cm.update_acc_matrix(new_task_index, performance_list)
 
         # 若是第一个任务, 不算持续学习指标
-        if len(all_tasks) <= 1:
+        if len(all_sessions) <= 1:
             logger.info("[Info] This is the first task, skip any CL metrics.")
             final_metrics = {}
         else:
-            # 现在一共学了 len(all_tasks) 个任务
-            k = len(all_tasks)
+            # 现在一共学了 len(all_sessions) 个任务
+            k = len(all_sessions)
             final_metrics = compute_metrics_example(cm, k)
             logger.info(f"Continual Metrics after learning {k} tasks: {final_metrics}")
 

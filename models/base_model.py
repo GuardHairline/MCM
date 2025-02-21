@@ -12,7 +12,8 @@ class BaseMultimodalModel(nn.Module):
                  multimodal_fusion="multi_head_attention",
                  num_heads=8,
                  mode="multimodal",
-                 dropout_prob=0.1):
+                 dropout_prob=0.1,
+                 image_weight=0.1):
         """
         :param text_model_name: 文本编码器预训练模型，如 'microsoft/deberta-v3-base'
         :param image_model_name: 图像编码器，如 'resnet50'
@@ -59,6 +60,7 @@ class BaseMultimodalModel(nn.Module):
 
         self.dropout = nn.Dropout(dropout_prob)
         self.fc = nn.Linear(self.fusion_output_dim, self.text_hidden_size)  # Final linear layer for output
+        self.image_weight = image_weight  # 设置图像模态的权重
 
     def forward(self, input_ids, attention_mask, token_type_ids, image_tensor, return_sequence=False):
         """
@@ -84,7 +86,10 @@ class BaseMultimodalModel(nn.Module):
 
         if self.mode == "text_only":
             # 只使用文本模态，返回文本的[CLS]向量
-            return text_sequence
+            if return_sequence:
+                return text_sequence  # 返回整个文本序列
+            else:
+                return text_cls  # 返回[CLS]向量
 
         # ====== 图像特征 ======
         img_feat = self.image_encoder(image_tensor)  # shape [batch_size, 2048, 1, 1]
@@ -92,24 +97,33 @@ class BaseMultimodalModel(nn.Module):
         img_feat = self.image_proj(img_feat)           # [batch_size, text_hidden_size]
 
         # ====== 多模态融合 ======
+
         if self.fusion_strategy == "multi_head_attention":
-            # 在图像和文本之间进行双向多头注意力融合
-            text_seq = text_sequence.transpose(0, 1)  # 转换为[seq_len, batch_size, hidden_size]
-            img_seq = img_feat.unsqueeze(0)  # [1, batch_size, hidden_size]
-
-            # 图像和文本模态之间的交互
-            text_attention_output, _ = self.mha(query=text_seq, key=img_seq, value=img_seq)
-            img_attention_output, _ = self.mha(query=img_seq, key=text_seq, value=text_seq)
-
-            # 融合输出：拼接两个模态的输出（图像和文本的融合）
+            # 注意：目前的 MHA 代码只展示“句向量 + 图像向量”的示例
+            # 若要对序列中每个 token 都做 cross-attention，需要更改 key/value 的序列长度
             if return_sequence:
-                # 确保输出的维度一致
-                return torch.cat([text_attention_output.transpose(0, 1), img_attention_output.squeeze(0).unsqueeze(1)], dim=-1)
-            else:
-                # 只返回句子级别的输出（即[CLS]向量的融合）
-                combined_cls = torch.cat([text_attention_output[0, :, :], img_attention_output.squeeze(0)], dim=-1)
-                return combined_cls
+                # 这里简单示例：对 text_sequence 的所有 token 做“图像向量为 key/value”的跨注意力
+                # text_seq => [seq_len, batch_size, hidden_size]
+                text_seq = text_sequence.transpose(0, 1)
+                # img_seq  => [1, batch_size, hidden_size]
+                img_seq = img_feat.unsqueeze(0)
 
+                img_seq = img_seq * self.image_weight
+
+                out_seq, _ = self.mha(query=text_seq, key=img_seq, value=img_seq)
+                # [seq_len, batch_size, hidden_size] => 转回 (b, seq_len, hidden_size)
+                out_seq = out_seq.transpose(0, 1)
+                return out_seq
+            else:
+                # 只处理 CLS
+                text_seq = text_cls.unsqueeze(0)  # [1, batch_size, hidden_size]
+                img_seq = img_feat.unsqueeze(0)  # [1, batch_size, hidden_size]
+
+                img_seq = img_seq * self.image_weight
+
+                out_seq, _ = self.mha(query=text_seq, key=img_seq, value=img_seq)
+                fused_cls = out_seq.squeeze(0)  # (batch_size, hidden_size)
+                return fused_cls
 
         elif self.fusion_strategy == "concat":
             if return_sequence:

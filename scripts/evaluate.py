@@ -179,12 +179,14 @@ def evaluate_single_task(model, task_name, split, device, args):
     return metrics
 
 
-def evaluate_all_learned_tasks(model, task_list, device, args):
+def evaluate_all_learned_tasks(model, sessions_list, device, train_info):
     acc_list = []
-    for tname in task_list:
+    for session in sessions_list:
+        tname = session["task_name"]
+        args = session["args"]
         m = evaluate_single_task(model, tname, "test", device, args)
         # 你可取 chunk_f1 或 accuracy 作为acc
-        if tname in ["mate", "mner", "mabsa"]:
+        if session in ["mate", "mner", "mabsa"]:
             acc_list.append(m["chunk_f1"])
         else:
             acc_list.append(m["accuracy"])
