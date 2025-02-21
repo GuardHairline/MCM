@@ -99,7 +99,7 @@ class MNREDataset(Dataset):
         out_item = {
             "input_ids": torch.tensor(encoded["input_ids"], dtype=torch.long),
             "attention_mask": torch.tensor(encoded["attention_mask"], dtype=torch.long),
-            "label": torch.tensor(label_id, dtype=torch.long),
+            "labels": torch.tensor(label_id, dtype=torch.long),
             "image_tensor": image_tensor
         }
         if "token_type_ids" in encoded:
