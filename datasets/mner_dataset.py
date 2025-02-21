@@ -18,9 +18,11 @@ class MNERDataset(Dataset):
                  tokenizer_name: str = "microsoft/deberta-v3-base",
                  max_seq_length: int = 128):
         super().__init__()
+        if tokenizer_name == "microsoft/deberta-v3-base":
+            model_path = "downloaded_model/deberta-v3-base"
         self.text_file = text_file
         self.image_dir = image_dir
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         self.max_seq_length = max_seq_length
 
         self.samples = self._read_data()
