@@ -277,6 +277,7 @@ def train(args, logger):
 
         # ========== 11) 保存新的 train_info 到 JSON ==========
         with open(args.train_info_json, "w", encoding="utf-8") as f:
+            train_info["args"] = vars(args)
             json.dump(train_info, f, indent=2)
         logger.info(f"Updated train_info JSON => {args.train_info_json}")
     except Exception as e:
