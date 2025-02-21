@@ -61,9 +61,9 @@ class MNERDataset(Dataset):
     def __getitem__(self, idx):
         text_with_T, entity_str, entity_type, image_path = self.samples[idx]
 
-
+        T_position = text_with_T.index("$T$")
         replaced_text = text_with_T.replace("$T$", entity_str)
-        start_pos = replaced_text.index(entity_str)
+        start_pos = T_position
         end_pos = start_pos + len(entity_str) - 1
         # B-type / I-type / O=0
         t = self.type_map[entity_type]  # => t in [0..3]
