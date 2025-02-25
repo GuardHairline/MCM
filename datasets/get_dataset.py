@@ -15,39 +15,41 @@ def get_dataset(task, split, args):
     if isinstance(args, dict):
         text_file = args.get(f"{split}_text_file")
         image_dir = args.get("image_dir")
+        text_model_name = args.get("text_model_name")
     else:
         text_file = getattr(args, f"{split}_text_file")
         image_dir = args.image_dir
+        text_model_name = args.text_model_name
 
     if task == "mabsa":
         return MABSADataset(
             text_file=text_file,
             image_dir=image_dir,
-            tokenizer_name=args.text_model_name
+            tokenizer_name=text_model_name
         )
     elif task == "mner":
         return MNERDataset(
             text_file=text_file,
             image_dir=image_dir,
-            tokenizer_name=args.text_model_name
+            tokenizer_name=text_model_name
         )
     elif task == "mnre":
         return MNREDataset(
             text_file=text_file,
             image_dir=image_dir,
-            tokenizer_name=args.text_model_name
+            tokenizer_name=text_model_name
         )
     elif task == "mate":
         return MATEDataset(
             text_file=text_file,
             image_dir=image_dir,
-            tokenizer_name=args.text_model_name
+            tokenizer_name=text_model_name
         )
     elif task == "masc":
         return MASCDataset(
             text_file=text_file,
             image_dir=image_dir,
-            tokenizer_name=args.text_model_name
+            tokenizer_name=text_model_name
         )
     else:
         raise ValueError(f"Unsupported task: {task}")
