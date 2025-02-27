@@ -1,0 +1,1 @@
+python -m scripts.train --task_name=masc --num_labels=3 --session_name=masc_1 --mode=text_only

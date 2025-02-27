@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader, ConcatDataset
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import StepLR  # 用于学习率调度(示例)
 
+from continual.experience_replay import ExperienceReplayMemory
 from datasets.get_dataset import get_dataset
 from scripts.evaluate import evaluate_single_task, evaluate_all_learned_tasks
 from models.base_model import BaseMultimodalModel
@@ -19,6 +20,7 @@ from continual.ewc import MultiTaskEWC  # 如果需要 EWC
 from continual.metrics import ContinualMetrics, compute_metrics_example
 from utils.logging import setup_logger
 import logging
+
 
 class Full_Model(nn.Module):
     def __init__(self, base_model, head, dropout_prob=0.1):
@@ -41,7 +43,7 @@ def train(args, logger):
     new_task_name = args.task_name
     logger.info(f"=== Start training for new task: {new_task_name} ===")
     # ========== 1) 从 JSON 加载或初始化 train_info ==========
-
+    replay_memory = ExperienceReplayMemory()  # 初始化经验重放内存
     train_info = {}
     if os.path.exists(args.train_info_json):
         with open(args.train_info_json, "r", encoding="utf-8") as f:
@@ -80,7 +82,7 @@ def train(args, logger):
         "args": vars(args)
     }
 
-    # ========== 4) 创建模型 + (可选) EWC 逻辑 ==========
+    # ========== 4) 创建模型 + (可选) Continual Learning 策略 ==========
     base_model = BaseMultimodalModel(
         args.text_model_name,
         args.image_model_name,
@@ -98,7 +100,7 @@ def train(args, logger):
 
     # 若不是第一次，则可以加载 EWC fisher
     ewc = None
-    if old_sessions_count > 0 and args.strategy == "ewc":
+    if old_sessions_count > 0 and args.ewc == 1:
         ewc = MultiTaskEWC(
             model=full_model,
             current_task_name=new_task_name,
@@ -107,14 +109,18 @@ def train(args, logger):
         )
         ewc.load_all_previous_tasks()
 
+    replay_memory = None
+    if args.replay == 1:
+        replay_memory = ExperienceReplayMemory()
+        logger.info("in the replay mode")
+
     # ========== 5) 训练该任务 ==========
     optimizer = AdamW(full_model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = StepLR(optimizer, step_size=2, gamma=0.1)
     train_dataset = get_dataset(new_task_name, "train", args)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
 
-    best_dev_acc = 0.0
-    no_improve_count = 0
+    # 早停逻辑需要
     patience = args.patience
 
     epoch_losses = []
@@ -147,39 +153,20 @@ def train(args, logger):
                         return_sequence=True
                     )
                     logits = full_model.head(fused_feat)  # => (batch_size, seq_len, num_labels)
-
+                    # 由于 token 分布不均，采用加权交叉熵
                     if args.task_name == "mate":
-                        # 针对 MATE 任务，由于 token 分布不均，采用加权交叉熵
-                        # 假设标签映射：O->0, B->1, I->2；此处权重可根据实际情况调整
                         class_weights = torch.tensor([1.0, 15.0, 15.0], device=device)
-                        loss = nn.functional.cross_entropy(
-                            logits.view(-1, args.num_labels),
-                            labels.view(-1),
-                            weight=class_weights,
-                            ignore_index=-100
-                        )
                     elif args.task_name == "mner":
-                        class_weights = torch.tensor([0.1, 164.0, 10.0, 270.0, 27.0, 340.0, 16.0, 360.0, 2.0], device=device)
-                        loss = nn.functional.cross_entropy(
-                            logits.view(-1, args.num_labels),
-                            labels.view(-1),
-                            weight=class_weights,
-                            ignore_index=-100
-                        )
+                        class_weights = torch.tensor([0.1, 164.0, 10.0, 270.0, 27.0, 340.0, 16.0, 360.0, 2.0],
+                                                     device=device)
                     elif args.task_name == "mabsa":
                         class_weights = torch.tensor([1.0, 3700.0, 234.0, 480.0, 34.0, 786.0, 69.0], device=device)
-                        loss = nn.functional.cross_entropy(
-                            logits.view(-1, args.num_labels),
-                            labels.view(-1),
-                            weight=class_weights,
-                            ignore_index=-100
-                        )
-                    else:
-                        loss = nn.functional.cross_entropy(
-                            logits.view(-1, args.num_labels),
-                            labels.view(-1),
-                            ignore_index=-100
-                        )
+                    loss = nn.functional.cross_entropy(
+                        logits.view(-1, args.num_labels),
+                        labels.view(-1),
+                        weight=class_weights,
+                        ignore_index=-100
+                    )
                 else:
                     # 句级分类: return_sequence=False => (batch_size, fusion_dim)
                     fused_feat = full_model.base_model(
@@ -203,6 +190,13 @@ def train(args, logger):
 
             avg_loss = total_loss / len(train_loader)
             epoch_losses.append(avg_loss)
+
+            # 如果开启了经验重放，则进行重放
+            if args.replay == 1 and replay_memory.do_replay():
+                replay_task = replay_memory.sample_replay_task()
+                replay_loss = replay_memory.run_replay_step(replay_task, full_model)
+                logger.info(f"Replay loss: {replay_loss.item()}")
+
             scheduler.step()
 
             # 验证集
@@ -225,21 +219,21 @@ def train(args, logger):
             elapsed = (time.time() - t0) / 60
             if is_sequence_task:
                 logger.info(f"[Task={new_task_name}] Epoch {epoch + 1}/{args.epochs}, "
-                      f"Loss={avg_loss:.4f}, "
-                      f"Acc(micro_f1)={dev_metrics['accuracy']:.2f}%, "
-                      f"chunk_precision={dev_metrics['chunk_precision']:.2f}%, "
-                      f"chunk_recall={dev_metrics['chunk_recall']:.2f}%, "
-                      f"chunk_f1={dev_metrics['chunk_f1']:.2f}%, "
-                      f"Epoch processed in {elapsed:.4f} minutes.")
+                            f"Loss={avg_loss:.4f}, "
+                            f"Acc(micro_f1)={dev_metrics['accuracy']:.2f}%, "
+                            f"chunk_precision={dev_metrics['chunk_precision']:.2f}%, "
+                            f"chunk_recall={dev_metrics['chunk_recall']:.2f}%, "
+                            f"chunk_f1={dev_metrics['chunk_f1']:.2f}%, "
+                            f"Epoch processed in {elapsed:.4f} minutes.")
             else:
                 logger.info(f"[Task={new_task_name}] Epoch {epoch + 1}/{args.epochs}, "
-                      f"Loss={avg_loss:.4f}, "
-                      f"Acc(micro_f1)={dev_metrics['accuracy']:.2f}%, "
-                      f"Pre_macro={dev_metrics['precision_macro']:.2f}%, "
-                      f"Recall_macro={dev_metrics['recall_macro']:.2f}%, "
-                      f"f1_macro={dev_metrics['f1_macro']:.2f}%, "
-                      f"LabelDist={label_counter}%, "
-                      f"Epoch processed in {elapsed:.4f} minutes.")
+                            f"Loss={avg_loss:.4f}, "
+                            f"Acc(micro_f1)={dev_metrics['accuracy']:.2f}%, "
+                            f"Pre_macro={dev_metrics['precision_macro']:.2f}%, "
+                            f"Recall_macro={dev_metrics['recall_macro']:.2f}%, "
+                            f"f1_macro={dev_metrics['f1_macro']:.2f}%, "
+                            f"LabelDist={label_counter}%, "
+                            f"Epoch processed in {elapsed:.4f} minutes.")
 
         # ========== 6) 用最佳模型做最终 dev/test 测试 ==========
         # if os.path.exists("checkpoints/best_model.pt") and flag_save:
@@ -302,9 +296,12 @@ def train(args, logger):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--task_name", type=str, default="masc", help="Name of the new task to train.")
-    parser.add_argument("--session_name", type=str, default="default_session", help="Name or ID for this training session")
-    parser.add_argument("--train_info_json", type=str, default="checkpoints/train_info.json", help="Path to record train info (tasks, data, metrics, etc.)")
-    parser.add_argument("--pretrained_model_path", type=str, default="", help="Path to a pretrained model to continue training")
+    parser.add_argument("--session_name", type=str, default="default_session",
+                        help="Name or ID for this training session")
+    parser.add_argument("--train_info_json", type=str, default="checkpoints/train_info.json",
+                        help="Path to record train info (tasks, data, metrics, etc.)")
+    parser.add_argument("--pretrained_model_path", type=str, default="",
+                        help="Path to a pretrained model to continue training")
     parser.add_argument("--output_model_path", type=str, default="checkpoints/model_1.pt")
 
     parser.add_argument("--train_text_file", type=str, default="data/MASC/twitter2015/train.txt")
@@ -313,7 +310,8 @@ def parse_args():
     parser.add_argument("--image_dir", type=str, default="data/MASC/twitter2015/images")
     parser.add_argument("--text_model_name", type=str, default="microsoft/deberta-v3-base")
     parser.add_argument("--image_model_name", type=str, default="resnet50")
-    parser.add_argument("--fusion_strategy", type=str, default="multi_head_attention", choices=["concat", "multi_head_attention", "add"])
+    parser.add_argument("--fusion_strategy", type=str, default="multi_head_attention",
+                        choices=["concat", "multi_head_attention", "add"])
     parser.add_argument("--num_heads", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=1e-5)
@@ -321,16 +319,21 @@ def parse_args():
     parser.add_argument("--num_labels", type=int, default=3)  # -1, 0, 1
     parser.add_argument("--hidden_dim", type=int, default=768)
     parser.add_argument("--mode", type=str, default="multimodal")  # text_only / multimodal
-    parser.add_argument("--strategy", type=str, default="ewc")  # ewc / none ...
     parser.add_argument("--ewc_lambda", type=float, default=1000)
-
 
     # == 新增正则化和防过拟合的超参 ==
     parser.add_argument("--weight_decay", type=float, default=1e-5, help="Weight decay (L2 regularization).")
     parser.add_argument("--dropout_prob", type=float, default=0.1, help="Dropout probability in Full_Model.")
     parser.add_argument("--patience", type=int, default=5, help="Patience for early stopping (epochs).")
 
-
+    # == Continual Learning 相关 ==
+    parser.add_argument("--ewc", type=int, default=0, help="whether to use ewc")
+    parser.add_argument("--parallel", type=int, default=0, help="whether to use ewc")
+    parser.add_argument("--replay", type=int, default=0, help="whether to use experience replay")
+    parser.add_argument("--memory_percentage", type=int, default=0.05, help="whether to use experience replay")
+    parser.add_argument("--replay_frequency", type=int, default=100, help="whether to use experience replay")
+    parser.add_argument("--memory_sampling_strategy", type=str, default='random', choices=['random', 'random-balanced'],
+                        help="Strategy for sampling memory buffer samples.")
 
     args = parser.parse_args()
     return args
