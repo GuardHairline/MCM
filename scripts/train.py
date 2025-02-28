@@ -152,12 +152,12 @@ def train(args, logger):
                         input_ids, attention_mask, token_type_ids, image_tensor,
                         return_sequence=True
                     )
-                    logits = full_model.head(fused_feat)  # => (batch_size, seq_len, num_labels)
                     # 由于 token 分布不均，采用加权交叉熵
                     if args.task_name == "mate":
                         # class_weights = torch.tensor([1.0, 15.0, 15.0], device=device)
                         loss = full_model.head(fused_feat, labels)
                     elif args.task_name == "mner":
+                        logits = full_model.head(fused_feat)  # => (batch_size, seq_len, num_labels)
                         class_weights = torch.tensor([0.1, 164.0, 10.0, 270.0, 27.0, 340.0, 16.0, 360.0, 2.0],
                                                      device=device)
                         loss = nn.functional.cross_entropy(
@@ -167,6 +167,7 @@ def train(args, logger):
                             ignore_index=-100
                         )
                     elif args.task_name == "mabsa":
+                        logits = full_model.head(fused_feat)  # => (batch_size, seq_len, num_labels)
                         class_weights = torch.tensor([1.0, 3700.0, 234.0, 480.0, 34.0, 786.0, 69.0], device=device)
                         loss = nn.functional.cross_entropy(
                             logits.view(-1, args.num_labels),

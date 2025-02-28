@@ -38,6 +38,7 @@ class MATEHead(nn.Module):
         if mask is None:
             # 构造 mask：有效 token 的位置为 True
             mask = labels != -100
+        mask[:, 0] = True
 
         if labels is not None:
             # CRF 的 log_likelihood 返回的是对数似然，训练目标为负对数似然
