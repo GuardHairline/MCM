@@ -155,18 +155,25 @@ def train(args, logger):
                     logits = full_model.head(fused_feat)  # => (batch_size, seq_len, num_labels)
                     # 由于 token 分布不均，采用加权交叉熵
                     if args.task_name == "mate":
-                        class_weights = torch.tensor([1.0, 15.0, 15.0], device=device)
+                        # class_weights = torch.tensor([1.0, 15.0, 15.0], device=device)
+                        loss = full_model.head(fused_feat, labels)
                     elif args.task_name == "mner":
                         class_weights = torch.tensor([0.1, 164.0, 10.0, 270.0, 27.0, 340.0, 16.0, 360.0, 2.0],
                                                      device=device)
+                        loss = nn.functional.cross_entropy(
+                            logits.view(-1, args.num_labels),
+                            labels.view(-1),
+                            weight=class_weights,
+                            ignore_index=-100
+                        )
                     elif args.task_name == "mabsa":
                         class_weights = torch.tensor([1.0, 3700.0, 234.0, 480.0, 34.0, 786.0, 69.0], device=device)
-                    loss = nn.functional.cross_entropy(
-                        logits.view(-1, args.num_labels),
-                        labels.view(-1),
-                        weight=class_weights,
-                        ignore_index=-100
-                    )
+                        loss = nn.functional.cross_entropy(
+                            logits.view(-1, args.num_labels),
+                            labels.view(-1),
+                            weight=class_weights,
+                            ignore_index=-100
+                        )
                 else:
                     # 句级分类: return_sequence=False => (batch_size, fusion_dim)
                     fused_feat = full_model.base_model(

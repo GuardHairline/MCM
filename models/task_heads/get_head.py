@@ -4,7 +4,7 @@ from models.task_heads.mner_head import MNERHead
 from models.task_heads.mnre_head import MNREHead
 from models.task_heads.masc_head import MASCHead
 from models.task_heads.mate_head import MATEHead
-def get_head(task, base_model, args):
+def get_head(task, base_model, args, labels=None):
     """
     根据任务初始化相应的任务头
     :param task: 任务名称
