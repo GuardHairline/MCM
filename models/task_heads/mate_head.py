@@ -36,13 +36,17 @@ class MATEHead(nn.Module):
         emissions = self.classifier(x)  # shape: (batch_size, seq_len, num_labels)
 
         if mask is None:
-            # 构造 mask：有效 token 的位置为 True
-            mask = (labels != -100)
+            if labels is not None:
+                mask = (labels != -100)
+            else:
+                mask = torch.ones(emissions.size()[:2], dtype=torch.bool, device=emissions.device)
+            # 强制每个序列的第一个 token 有效
         mask[:, 0] = True
 
         if labels is not None:
             new_labels = labels.clone()
-            new_labels[(new_labels == -100) | (mask)] = 0  # 将 -100 替换为 0（假设 0 是一个有效标签）
+            new_labels[(new_labels == -100) & (mask)] = 0  # 将 -100 替换为 0（假设 0 是一个有效标签）
+            new_labels[~mask] = 0
             # CRF 的 log_likelihood 返回的是对数似然，训练目标为负对数似然
             loss = -self.crf(emissions, new_labels, mask=mask, reduction='mean')
             return loss
