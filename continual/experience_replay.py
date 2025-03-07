@@ -6,6 +6,7 @@ from typing import Dict, Callable
 
 import torch
 from torch.optim import AdamW
+from torch.utils.data._utils.collate import default_collate
 
 from datasets.get_dataset import get_dataset  # 使用你现有的 get_dataset 函数
 from utils.logging import setup_logger
@@ -85,7 +86,7 @@ class ExperienceReplayMemory:
         session_name = session_info["session_name"]
         # 使用历史会话中的 task_name 加载数据集，假设训练数据与当前一致
         dataset = get_dataset(session_info["task_name"], "train", session_args)
-        batch_collate_fn = dataset.collate_fn  # 假定数据集提供 collate_fn
+        batch_collate_fn = default_collate
         batch_size = session_args.batch_size
 
         memory_size = int(memory_percentage * len(dataset))
