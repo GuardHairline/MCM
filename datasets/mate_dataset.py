@@ -84,6 +84,7 @@ class MATEDataset(Dataset):
             char_label[start_pos] = 1  # B
             for c in range(start_pos+1, end_pos+1):
                 char_label[c] = 2       # I
+        assert any(l != 0 for l in char_label), "Entity not labeled!"
 
         # 3) tokenizer + offset对齐 => subword级别标签
         encoded = self.tokenizer(
@@ -115,6 +116,7 @@ class MATEDataset(Dataset):
                         2 if 2 in valid_labels else 0
                     )
                 label_ids.append(label_id)
+        assert any(label in {1, 2} for label in label_ids), f"No valid entity labels (1-2) found. Check text: '{replaced_text}', entity: '{aspect_term}', type: {char_label}"
 
         encoded.pop("offset_mapping")
 
