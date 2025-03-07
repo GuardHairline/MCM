@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader, ConcatDataset
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import StepLR  # 用于学习率调度(示例)
 
-from continual.experience_replay import ExperienceReplayMemory
+from continual.experience_replay import ExperienceReplayMemory, default_replay_condition, make_dynamic_replay_condition
 from datasets.get_dataset import get_dataset
 from scripts.evaluate import evaluate_single_task, evaluate_all_learned_tasks
 from models.base_model import BaseMultimodalModel
@@ -41,9 +41,9 @@ def train(args, logger):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     new_task_name = args.task_name
+
     logger.info(f"=== Start training for new task: {new_task_name} ===")
     # ========== 1) 从 JSON 加载或初始化 train_info ==========
-    replay_memory = ExperienceReplayMemory()  # 初始化经验重放内存
     train_info = {}
     if os.path.exists(args.train_info_json):
         with open(args.train_info_json, "r", encoding="utf-8") as f:
@@ -112,13 +112,40 @@ def train(args, logger):
     replay_memory = None
     if args.replay == 1:
         replay_memory = ExperienceReplayMemory()
-        logger.info("in the replay mode")
+        logger.info("进入重放模式")
+        # 构造基于动态阈值的重放条件函数，利用已有历史会话的信息
+        dynamic_condition = make_dynamic_replay_condition(train_info.get("sessions", []), threshold_factor=0.9)
+        # 注册所有历史会话到经验重放中（基于 session 级别）
+        for session_info in train_info.get("sessions", []):
+            replay_memory.add_session_memory_buffer(
+                session_info=session_info,
+                memory_percentage=args.memory_percentage,  # 如 0.05，即保存训练集中 5% 的样本
+                replay_ratio=0.25,  # 重放批次占当前 batch size 的比例
+                replay_frequency=args.replay_frequency,  # 每隔多少步（或 epoch）检查一次
+                replay_condition=dynamic_condition  # 使用动态重放条件
+            )
+        logger.info("加载了 %d 个历史会话用于重放", len(replay_memory.session_memory_buffers))
 
     # ========== 5) 训练该任务 ==========
     optimizer = AdamW(full_model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = StepLR(optimizer, step_size=2, gamma=0.1)
     train_dataset = get_dataset(new_task_name, "train", args)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+
+    tokenizer = train_dataset.tokenizer
+    for batch in train_loader:
+        # 输出前两条样例
+        for i in range(min(10, batch["input_ids"].size(0))):
+            tokens = tokenizer.convert_ids_to_tokens(batch["input_ids"][i].tolist())
+            decoded_tokens = "|".join(tokens)
+            print(f"Sample {i} decoded text: {decoded_tokens}")
+            print(f"Sample {i} labels: {batch['labels'][i].tolist()}")
+        # 输出各字段张量的尺寸
+        print("input_ids shape:", batch["input_ids"].shape)
+        print("attention_mask shape:", batch["attention_mask"].shape)
+        if "token_type_ids" in batch:
+            print("token_type_ids shape:", batch["token_type_ids"].shape)
+        break  # 只处理第一个 batch
 
     # 早停逻辑需要
     patience = args.patience
@@ -192,10 +219,11 @@ def train(args, logger):
             epoch_losses.append(avg_loss)
 
             # 如果开启了经验重放，则进行重放
-            if args.replay == 1 and replay_memory.do_replay():
-                replay_task = replay_memory.sample_replay_task()
-                replay_loss = replay_memory.run_replay_step(replay_task, full_model)
-                logger.info(f"Replay loss: {replay_loss.item()}")
+            if args.replay == 1 and replay_memory.do_replay(epoch + 1):
+                replay_session = replay_memory.sample_replay_session(epoch + 1)
+                if replay_session is not None:
+                    replay_loss = replay_memory.run_replay_step(replay_session, full_model, epoch + 1)
+                    logger.info("Replay loss: %.4f", replay_loss.item())
 
             scheduler.step()
 
@@ -306,10 +334,10 @@ def parse_args():
 
     parser.add_argument("--train_text_file", type=str, default="data/MASC/twitter2015/train.txt")
     parser.add_argument("--test_text_file", type=str, default="data/MASC/twitter2015/test.txt")
-    parser.add_argument("--dev_text_file", type=str, default="data/MASC/twitter2015/dev.txt")
+    parser.add_argument("--dev_text_file", type=str, default="data/MASC/twittaer2015/dev.txt")
     parser.add_argument("--image_dir", type=str, default="data/MASC/twitter2015/images")
     parser.add_argument("--text_model_name", type=str, default="microsoft/deberta-v3-base")
-    parser.add_argument("--image_model_name", type=str, default="resnet50")
+    parser.add_argument("--image_model_name", type=str, default="google/vit-base-patch16-224")
     parser.add_argument("--fusion_strategy", type=str, default="multi_head_attention",
                         choices=["concat", "multi_head_attention", "add"])
     parser.add_argument("--num_heads", type=int, default=8)

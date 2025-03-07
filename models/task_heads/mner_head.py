@@ -14,9 +14,7 @@ class MNERHead(nn.Module):
         if hidden_dim is None:
             hidden_dim = input_dim
         self.dropout = nn.Dropout(dropout_prob)
-        self.fc = nn.Linear(input_dim, hidden_dim)
-        self.relu = nn.ReLU()
-        self.classifier = nn.Linear(hidden_dim, num_labels)
+        self.classifier = nn.Linear(input_dim, num_labels)
 
     def forward(self, seq_features):
         """
@@ -24,8 +22,5 @@ class MNERHead(nn.Module):
         :return: logits, shape (batch_size, seq_len, num_labels)
         """
         x = self.dropout(seq_features)
-        x = self.fc(x)
-        x = self.relu(x)
-        x = self.dropout(x)
         logits = self.classifier(x)
         return logits

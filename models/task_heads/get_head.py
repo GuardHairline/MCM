@@ -15,12 +15,14 @@ def get_head(task, base_model, args):
     if task == "mabsa":
         return MABSAHead(
             input_dim=base_model.fusion_output_dim,
-            num_labels=args.num_labels
+            num_labels=args.num_labels,
+            dropout_prob=args.dropout_prob
         )
     elif task == "mner":
         return MNERHead(
             input_dim=base_model.fusion_output_dim,
-            num_labels=args.num_labels
+            num_labels=args.num_labels,
+            dropout_prob=args.dropout_prob
         )
     elif task == "mnre":
         return MNREHead(

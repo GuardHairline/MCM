@@ -35,6 +35,7 @@ class MNERDataset(Dataset):
         ])
 
         # 定义 type_map
+        #"PER": "-1", "ORG": "0", "LOC": "1", "OTHER": "2"}
         self.type_map = {-1: 0, 0:1, 1:2, 2:3}  # 4类
 
     def _read_data(self):
@@ -67,7 +68,11 @@ class MNERDataset(Dataset):
         replaced_text = text_with_T.replace("$T$", entity_str)
         start_pos = T_position
         end_pos = start_pos + len(entity_str) - 1
-        # B-type / I-type / O=0
+        # 检查位置是否越界
+        assert 0 <= start_pos < len(replaced_text), "Start position out of range!"
+        assert end_pos < len(replaced_text), "End position out of range!"
+
+        # 构建字符级标签：默认均为 O（0），对实体部分设定 B/I 标签
         t = self.type_map[entity_type]  # => t in [0..3]
         # B-type => 1 + 2*t
         # I-type => 2 + 2*t
@@ -79,6 +84,7 @@ class MNERDataset(Dataset):
             char_label[start_pos] = b_label
             for c in range(start_pos+1, end_pos+1):
                 char_label[c] = i_label
+        assert any(l != 0 for l in char_label), "Entity not labeled!"
 
         # tokenizer + offset
         encoded = self.tokenizer(
@@ -96,11 +102,12 @@ class MNERDataset(Dataset):
                 label_ids.append(-100)
             else:
                 sub_chars = char_label[start_char:end_char]
-                if len(sub_chars) == 0:
-                    label_ids.append(-100)
+                entity_labels = [label for label in sub_chars if label != 0]
+                if len(entity_labels) == 0:
+                    label_ids.append(0)
                 else:
-                    label_ids.append(sub_chars[0])
-
+                    label_ids.append(entity_labels[0])
+        assert any(label in {1, 2, 3, 4, 5, 6, 7, 8} for label in label_ids), f"No valid entity labels (1-8) found. Check text: '{replaced_text}', entity: '{entity_str}', type: {entity_type}"
         encoded.pop("offset_mapping")
 
         image_tensor = self._load_image(image_path)

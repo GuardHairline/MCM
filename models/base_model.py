@@ -7,7 +7,7 @@ from torchvision.models import ResNet50_Weights
 
 class BaseMultimodalModel(nn.Module):
     def __init__(self, text_model_name="microsoft/deberta-v3-base",
-                 image_model_name="resnet50",
+                 image_model_name="google/vit-base-patch16-224-in21k",
                  hidden_dim=768,
                  multimodal_fusion="multi_head_attention",
                  num_heads=8,
@@ -31,11 +31,9 @@ class BaseMultimodalModel(nn.Module):
         self.text_encoder = AutoModel.from_pretrained(model_path)
         self.text_hidden_size = self.text_encoder.config.hidden_size
 
-        # 图像编码器 (ResNet)
-        resnet = getattr(models, image_model_name)(weights=ResNet50_Weights.IMAGENET1K_V1)
-        # 去掉分类层，拿到最后一层特征向量
-        self.image_encoder = nn.Sequential(*list(resnet.children())[:-1])
-        self.image_hidden_size = 2048  # resnet50输出的向量dim
+        # 图像编码器 (ViT)
+        self.image_encoder = AutoModel.from_pretrained(image_model_name)
+        self.image_hidden_size = self.image_encoder.config.hidden_size
 
         # 可以在这里定义一个线性变换，使image特征和text特征映射到同一维度
         self.image_proj = nn.Linear(self.image_hidden_size, self.text_hidden_size)
@@ -61,7 +59,11 @@ class BaseMultimodalModel(nn.Module):
         self.dropout = nn.Dropout(dropout_prob)
         self.fc = nn.Linear(self.fusion_output_dim, self.text_hidden_size)  # Final linear layer for output
         self.image_weight = image_weight  # 设置图像模态的权重
-
+    def get_image_features(self, image_tensor):
+        # ViT特征提取（使用CLS token）
+        outputs = self.image_encoder(image_tensor)
+        features = outputs.last_hidden_state[:, 0, :]
+        return self.image_proj(features)
     def forward(self, input_ids, attention_mask, token_type_ids, image_tensor, return_sequence=False):
         """
         :param return_sequence: 为 True 时，返回序列特征 (batch_size, seq_len, fusion_dim)
