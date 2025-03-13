@@ -219,10 +219,10 @@ def train(args, logger):
             epoch_losses.append(avg_loss)
 
             # 如果开启了经验重放，则进行重放
-            if args.replay == 1 and replay_memory.do_replay(epoch + 1):
-                replay_session = replay_memory.sample_replay_session(epoch + 1)
+            if args.replay == 1 and replay_memory.do_replay(epoch + 1, full_model, device, args):
+                replay_session = replay_memory.sample_replay_session(epoch + 1, full_model, device, args)
                 if replay_session is not None:
-                    replay_loss = replay_memory.run_replay_step(replay_session, full_model, epoch + 1)
+                    replay_loss = replay_memory.run_replay_step(replay_session, full_model, epoch + 1, device, args)
                     logger.info("Replay loss: %.4f", replay_loss.item())
 
             scheduler.step()
@@ -245,28 +245,35 @@ def train(args, logger):
             #         break
 
             elapsed = (time.time() - t0) / 60
-            if is_sequence_task:
-                logger.info(f"[Task={new_task_name}] Epoch {epoch + 1}/{args.epochs}, "
-                            f"Loss={avg_loss:.4f}, "
-                            f"Acc(micro_f1)={dev_metrics['accuracy']:.2f}%, "
-                            f"chunk_precision={dev_metrics['chunk_precision']:.2f}%, "
-                            f"chunk_recall={dev_metrics['chunk_recall']:.2f}%, "
-                            f"chunk_f1={dev_metrics['chunk_f1']:.2f}%, "
-                            f"Epoch processed in {elapsed:.4f} minutes.")
-            else:
-                logger.info(f"[Task={new_task_name}] Epoch {epoch + 1}/{args.epochs}, "
-                            f"Loss={avg_loss:.4f}, "
-                            f"Acc(micro_f1)={dev_metrics['accuracy']:.2f}%, "
-                            f"Pre_macro={dev_metrics['precision_macro']:.2f}%, "
-                            f"Recall_macro={dev_metrics['recall_macro']:.2f}%, "
-                            f"f1_macro={dev_metrics['f1_macro']:.2f}%, "
-                            f"LabelDist={label_counter}%, "
-                            f"Epoch processed in {elapsed:.4f} minutes.")
+            logger.info(f"[Task={new_task_name}] Epoch {epoch + 1}/{args.epochs}, "
+                        f"Loss={avg_loss:.4f}, "
+                        f"Acc(micro_f1)={dev_metrics['acc']:.2f}%, "
+                        f"micro_precision={dev_metrics['micro_prec']:.2f}%, "
+                        f"micro_recall={dev_metrics['micro_recall']:.2f}%, "
+                        f"micro_f1={dev_metrics['micro_f1']:.2f}%, "
+                        f"Epoch processed in {elapsed:.4f} minutes.")
+            # if is_sequence_task:
+            #     logger.info(f"[Task={new_task_name}] Epoch {epoch + 1}/{args.epochs}, "
+            #                 f"Loss={avg_loss:.4f}, "
+            #                 f"Acc(micro_f1)={dev_metrics['accuracy']:.2f}%, "
+            #                 f"chunk_precision={dev_metrics['chunk_precision']:.2f}%, "
+            #                 f"chunk_recall={dev_metrics['chunk_recall']:.2f}%, "
+            #                 f"chunk_f1={dev_metrics['chunk_f1']:.2f}%, "
+            #                 f"Epoch processed in {elapsed:.4f} minutes.")
+            # else:
+            #     logger.info(f"[Task={new_task_name}] Epoch {epoch + 1}/{args.epochs}, "
+            #                 f"Loss={avg_loss:.4f}, "
+            #                 f"Acc(micro_f1)={dev_metrics['accuracy']:.2f}%, "
+            #                 f"Pre_macro={dev_metrics['precision_macro']:.2f}%, "
+            #                 f"Recall_macro={dev_metrics['recall_macro']:.2f}%, "
+            #                 f"f1_macro={dev_metrics['f1_macro']:.2f}%, "
+            #                 f"LabelDist={label_counter}%, "
+            #                 f"Epoch processed in {elapsed:.4f} minutes.")
 
         # ========== 6) 用最佳模型做最终 dev/test 测试 ==========
         # if os.path.exists("checkpoints/best_model.pt") and flag_save:
-        if os.path.exists("checkpoints/best_model.pt"):
-            full_model.load_state_dict(torch.load("checkpoints/best_model.pt"))
+        # if os.path.exists("checkpoints/best_model.pt"):
+        #     full_model.load_state_dict(torch.load("checkpoints/best_model.pt"))
         final_dev_metrics = evaluate_single_task(full_model, new_task_name, "dev", device, args)
         final_test_metrics = evaluate_single_task(full_model, new_task_name, "test", device, args)
 
@@ -290,26 +297,26 @@ def train(args, logger):
         new_task_index = old_sessions_count  # 0-based
         train_info["tasks"].append(new_task_name)
 
-        # 评估之前所有任务 + 本任务
-        all_sessions = train_info["sessions"]  # 现在长度 = old_sessions_count + 1
-        performance_list = evaluate_all_learned_tasks(full_model, all_sessions, device, train_info)
-        # => [acc_task1, acc_task2, ..., acc_task(new)]
-        # 在 cm.acc_matrix 中的行索引就是 new_task_index
+        # 评估之前所有任务在当前模型下的测试准确率
+        previous_performance_list = evaluate_all_learned_tasks(full_model, train_info["sessions"], device, train_info)
+        # 将之前任务的准确率与当前任务的准确率拼接成完整的 performance_list
+        performance_list = previous_performance_list + [final_test_metrics['acc']]
+
+        # 更新 acc_matrix，第 new_task_index 行对应的所有任务的测试准确率
         cm.update_acc_matrix(new_task_index, performance_list)
 
         # 若是第一个任务, 不算持续学习指标
-        if len(all_sessions) <= 1:
+        if len(train_info["sessions"]) + 1 <= 1:
             logger.info("[Info] This is the first task, skip any CL metrics.")
             final_metrics = {}
         else:
-            # 现在一共学了 len(all_sessions) 个任务
-            k = len(all_sessions)
+            k = len(train_info["sessions"]) + 1  # 总任务数
             final_metrics = compute_metrics_example(cm, k)
             logger.info(f"Continual Metrics after learning {k} tasks: {final_metrics}")
 
         session_info["final_metrics"] = final_metrics
 
-        # ========== 10) 覆盖 train_info["acc_matrix"] 并将 session_info 追加到 train_info["sessions"] ==========
+        # ========== 10) 更新 train_info ==========
         train_info["acc_matrix"] = cm.acc_matrix
         train_info["sessions"].append(session_info)
 
@@ -334,7 +341,7 @@ def parse_args():
 
     parser.add_argument("--train_text_file", type=str, default="data/MASC/twitter2015/train.txt")
     parser.add_argument("--test_text_file", type=str, default="data/MASC/twitter2015/test.txt")
-    parser.add_argument("--dev_text_file", type=str, default="data/MASC/twittaer2015/dev.txt")
+    parser.add_argument("--dev_text_file", type=str, default="data/MASC/twitter2015/dev.txt")
     parser.add_argument("--image_dir", type=str, default="data/MASC/twitter2015/images")
     parser.add_argument("--text_model_name", type=str, default="microsoft/deberta-v3-base")
     parser.add_argument("--image_model_name", type=str, default="google/vit-base-patch16-224")
@@ -357,9 +364,9 @@ def parse_args():
     # == Continual Learning 相关 ==
     parser.add_argument("--ewc", type=int, default=0, help="whether to use ewc")
     parser.add_argument("--parallel", type=int, default=0, help="whether to use ewc")
-    parser.add_argument("--replay", type=int, default=0, help="whether to use experience replay")
+    parser.add_argument("--replay", type=int, default=1, help="whether to use experience replay")
     parser.add_argument("--memory_percentage", type=int, default=0.05, help="whether to use experience replay")
-    parser.add_argument("--replay_frequency", type=int, default=100, help="whether to use experience replay")
+    parser.add_argument("--replay_frequency", type=int, default=5, help="whether to use experience replay")
     parser.add_argument("--memory_sampling_strategy", type=str, default='random', choices=['random', 'random-balanced'],
                         help="Strategy for sampling memory buffer samples.")
 
