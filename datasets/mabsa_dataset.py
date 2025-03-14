@@ -65,10 +65,26 @@ class MABSADataset(Dataset):
         text_with_T, aspect_term, sentiment, image_path = self.samples[idx]
 
         # 替换 $T$ => aspect_term
-        replaced_text = text_with_T.replace("$T$", aspect_term)
+        if "$T$" in text_with_T:
+            T_position = text_with_T.index("$T$")
+            replaced_text = text_with_T.replace("$T$", aspect_term)
+            start_pos = T_position
+            end_pos = start_pos + len(aspect_term) - 1
+        else:
+            replaced_text = text_with_T  # 若无 $T$, 也可直接拼
+            start_pos = -1
+            end_pos = -1
 
         # 对每个字/词进行标注（B-情感、I-情感、O）
-        char_label = self._get_char_labels(replaced_text, aspect_term, sentiment)
+        char_label = [0] * len(replaced_text)  # 0 for O (non-aspect)
+
+        # 根据 sentiment 生成 B 和 I 标签
+        if aspect_term in replaced_text:
+            sentiment_label = self._get_sentiment_label(sentiment)
+            char_label[start_pos] = sentiment_label[0]  # B-情感
+            for i in range(start_pos + 1, end_pos + 1):
+                char_label[i] = sentiment_label[1]  # I-情感
+        assert any(l != 0 for l in char_label), "Entity not labeled!"
 
         # Tokenize the text
         tokenized_input = self.tokenizer(replaced_text,
@@ -80,6 +96,7 @@ class MABSADataset(Dataset):
 
         # Align labels with tokens
         label_ids = self._align_labels_with_tokens(offsets, char_label)
+        assert any(label in {1, 2, 3, 4, 5, 6} for label in label_ids), f"No valid entity labels (1-6) found. Check text: '{replaced_text}', entity: '{aspect_term}', type: {char_label}"
 
         image_tensor = self._load_image(image_path)
 
@@ -89,25 +106,6 @@ class MABSADataset(Dataset):
             "labels": torch.tensor(label_ids, dtype=torch.long),
             "image_tensor": image_tensor
         }
-
-    def _get_char_labels(self, replaced_text, aspect_term, sentiment):
-        """
-        根据 aspect_term 和 sentiment 生成每个字符的标签。
-        生成标签包括 B 和 I 标签，以及相应的情感。
-        """
-        char_label = [0] * len(replaced_text)  # 0 for O (non-aspect)
-
-        # 根据 sentiment 生成 B 和 I 标签
-        if aspect_term in replaced_text:
-            start_pos = replaced_text.index(aspect_term)
-            end_pos = start_pos + len(aspect_term) - 1
-            sentiment_label = self._get_sentiment_label(sentiment)
-
-            char_label[start_pos] = sentiment_label[0]  # B-情感
-            for i in range(start_pos + 1, end_pos + 1):
-                char_label[i] = sentiment_label[1]  # I-情感
-
-        return char_label
 
     def _get_sentiment_label(self, sentiment):
         """

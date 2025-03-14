@@ -16,7 +16,8 @@ def get_head(task, base_model, args):
         return MABSAHead(
             input_dim=base_model.fusion_output_dim,
             num_labels=args.num_labels,
-            dropout_prob=args.dropout_prob
+            dropout_prob=args.dropout_prob,
+            hidden_dim=args.hidden_dim
         )
     elif task == "mner":
         return MNERHead(
