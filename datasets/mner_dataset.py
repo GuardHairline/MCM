@@ -3,7 +3,7 @@ import os
 import torch
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import torchvision.transforms as transforms
 
 class MNERDataset(Dataset):
@@ -35,8 +35,8 @@ class MNERDataset(Dataset):
         ])
 
         # 定义 type_map
-        #"PER": "-1", "ORG": "0", "LOC": "1", "OTHER": "2"}
-        self.type_map = {-1: 0, 0:1, 1:2, 2:3}  # 4类
+        #"PER": "-1", "ORG": "0", "LOC": "1", "OTHER": "2", "MISC": "3"}
+        self.type_map = {-1: 0, 0:1, 1:2, 2:3, 3:4}  # 5类
 
     def _read_data(self):
         lines = []
@@ -124,5 +124,10 @@ class MNERDataset(Dataset):
         return out_item
 
     def _load_image(self, path):
-        with Image.open(path).convert("RGB") as img:
-            return self.image_transform(img)
+        try:
+            with Image.open(path).convert("RGB") as img:
+                return self.image_transform(img)
+        except (UnidentifiedImageError, IOError) as e:
+            print(f"Error loading image {path}: {e}")
+            # 返回一个默认的全零图像（假设尺寸为 224x224，3通道）
+            return torch.zeros(3, 224, 224)
