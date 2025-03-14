@@ -14,8 +14,12 @@ def evaluate_single_task(model, task_name, split, device, args):
     """
     对指定任务的 {split} (dev/test) 数据集进行评估，返回准确率(%)。
     """
+    if isinstance(args, dict):
+        batch_size = args.get("batch_size")
+    else:
+        batch_size = args.batch_size
     ds = get_dataset(task_name, split, args)
-    loader = DataLoader(ds, batch_size=args.batch_size, shuffle=False)
+    loader = DataLoader(ds, batch_size=batch_size, shuffle=False)
     model.eval()
 
     is_sequence_task = (task_name in ["mate", "mner", "mabsa"])
@@ -137,42 +141,55 @@ def evaluate_single_task(model, task_name, split, device, args):
         if g != -100:
             valid_preds.append(p)
             valid_labels.append(g)
-    token_acc = accuracy_score(valid_labels, valid_preds)
+    # token_acc = accuracy_score(valid_labels, valid_preds)
+    #
+    # if is_sequence_task:
+    #     # 计算 chunk-level P/R/F1
+    #     tp, fp, fn = 0, 0, 0
+    #     for pset, gset in zip(all_chunks_pred, all_chunks_gold):
+    #         tp_ = len(pset.intersection(gset))
+    #         fp_ = len(pset - gset)
+    #         fn_ = len(gset - pset)
+    #         tp += tp_
+    #         fp += fp_
+    #         fn += fn_
+    #     prec = tp/(tp+fp) if (tp+fp)>0 else 0.0
+    #     rec = tp/(tp+fn) if (tp+fn)>0 else 0.0
+    #     f1 = 2*prec*rec/(prec+rec) if (prec+rec)>0 else 0.0
+    #
+    #     metrics = {
+    #         "token_acc": token_acc * 100.0,
+    #         "chunk_precision": prec * 100.0,
+    #         "chunk_recall": rec * 100.0,
+    #         "chunk_f1": f1 * 100.0
+    #     }
+    #     metrics["accuracy"] = metrics["chunk_f1"]  # 或者用token_acc
+    #
+    # else:
+    #     # 句级分类
+    #     precision_macro, recall_macro, f1_macro, _ = precision_recall_fscore_support(
+    #         all_labels_token, all_preds_token, average='macro', zero_division=0
+    #     )
+    #     acc = accuracy_score(all_labels_token, all_preds_token)
+    #     metrics = {
+    #         "accuracy": acc * 100.0,
+    #         "precision_macro": precision_macro * 100.0,
+    #         "recall_macro": recall_macro * 100.0,
+    #         "f1_macro": f1_macro * 100.0,
+    #     }
+    # 计算微平均指标（precision, recall, f1）以及准确率
+    micro_prec, micro_recall, micro_f1, _ = precision_recall_fscore_support(
+        valid_labels, valid_preds, average="micro", zero_division=0
+    )
+    acc = accuracy_score(valid_labels, valid_preds)
 
-    if is_sequence_task:
-        # 计算 chunk-level P/R/F1
-        tp, fp, fn = 0, 0, 0
-        for pset, gset in zip(all_chunks_pred, all_chunks_gold):
-            tp_ = len(pset.intersection(gset))
-            fp_ = len(pset - gset)
-            fn_ = len(gset - pset)
-            tp += tp_
-            fp += fp_
-            fn += fn_
-        prec = tp/(tp+fp) if (tp+fp)>0 else 0.0
-        rec = tp/(tp+fn) if (tp+fn)>0 else 0.0
-        f1 = 2*prec*rec/(prec+rec) if (prec+rec)>0 else 0.0
-
-        metrics = {
-            "token_acc": token_acc * 100.0,
-            "chunk_precision": prec * 100.0,
-            "chunk_recall": rec * 100.0,
-            "chunk_f1": f1 * 100.0
-        }
-        metrics["accuracy"] = metrics["chunk_f1"]  # 或者用token_acc
-
-    else:
-        # 句级分类
-        precision_macro, recall_macro, f1_macro, _ = precision_recall_fscore_support(
-            all_labels_token, all_preds_token, average='macro', zero_division=0
-        )
-        acc = accuracy_score(all_labels_token, all_preds_token)
-        metrics = {
-            "accuracy": acc * 100.0,
-            "precision_macro": precision_macro * 100.0,
-            "recall_macro": recall_macro * 100.0,
-            "f1_macro": f1_macro * 100.0,
-        }
+    metrics = {
+        "acc": acc * 100.0,
+        "micro_prec": micro_prec * 100.0,
+        "micro_recall": micro_recall * 100.0,
+        "micro_f1": micro_f1 * 100.0,
+        "label_counter": label_counter,
+    }
     # 在函数结束时打印或返回标签分布
     logger.info(f"Label Distribution for {task_name} {split}: {label_counter}")
     metrics["label_counter"] = label_counter  # 如果需要将统计结果返回
@@ -184,12 +201,14 @@ def evaluate_all_learned_tasks(model, sessions_list, device, train_info):
     for session in sessions_list:
         tname = session["task_name"]
         args = session["args"]
-        m = evaluate_single_task(model, tname, "test", device, args)
+        metrics  = evaluate_single_task(model, tname, "test", device, args)
         # 你可取 chunk_f1 或 accuracy 作为acc
-        if session in ["mate", "mner", "mabsa"]:
-            acc_list.append(m["chunk_f1"])
-        else:
-            acc_list.append(m["accuracy"])
+        # if tname in ["mate", "mner", "mabsa"]:
+        #     acc_list.append(m["chunk_f1"])
+        # else:
+        #     acc_list.append(m["accuracy"])
+        logger.info(f"[Info] Evaluation metrics for {tname} on test set: {metrics}")
+        acc_list.append(metrics["acc"])
     return acc_list
 
 
