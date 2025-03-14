@@ -116,13 +116,13 @@ def train(args, logger):
         # 构造基于动态阈值的重放条件函数，利用已有历史会话的信息
         dynamic_condition = make_dynamic_replay_condition(train_info.get("sessions", []), threshold_factor=0.9)
         # 注册所有历史会话到经验重放中（基于 session 级别）
-        for session_info in train_info.get("sessions", []):
+        for hist_session in train_info.get("sessions", []):
             replay_memory.add_session_memory_buffer(
-                session_info=session_info,
-                memory_percentage=args.memory_percentage,  # 如 0.05，即保存训练集中 5% 的样本
-                replay_ratio=0.25,  # 重放批次占当前 batch size 的比例
-                replay_frequency=args.replay_frequency,  # 每隔多少步（或 epoch）检查一次
-                replay_condition=dynamic_condition  # 使用动态重放条件
+                session_info=hist_session,
+                memory_percentage=args.memory_percentage,  # 如 0.05
+                replay_ratio=0.25,
+                replay_frequency=args.replay_frequency,
+                replay_condition=dynamic_condition
             )
         logger.info("加载了 %d 个历史会话用于重放", len(replay_memory.session_memory_buffers))
 
