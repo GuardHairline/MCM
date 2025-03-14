@@ -184,8 +184,11 @@ def train(args, logger):
                     if args.task_name == "mate":
                         class_weights = torch.tensor([1.0, 15.0, 15.0], device=device)
                     elif args.task_name == "mner":
-                        class_weights = torch.tensor([0.1, 164.0, 10.0, 270.0, 27.0, 340.0, 16.0, 360.0, 2.0],
-                                                     device=device)
+                        if args.num_labels == 9:
+                            class_weights = torch.tensor([0.1, 164.0, 10.0, 270.0, 27.0, 340.0, 16.0, 360.0, 2.0],
+                                                         device=device)
+                        elif args.num_labels == 11:
+                            class_weights = torch.tensor([0.1, 164.0, 10.0, 270.0, 27.0, 340.0, 16.0, 360.0, 2.0, 100.0, 10.0], device=device)
                     elif args.task_name == "mabsa":
                         class_weights = torch.tensor([1.0, 3700.0, 234.0, 480.0, 34.0, 786.0, 69.0], device=device)
                     loss = nn.functional.cross_entropy(

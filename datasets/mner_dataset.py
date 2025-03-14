@@ -8,7 +8,7 @@ import torchvision.transforms as transforms
 
 class MNERDataset(Dataset):
     """
-    MNER: Multimodal NER, 第三行为实体类型(-1..2), 做序列标注(B-type/I-type/O).
+    MNER: Multimodal NER, 第三行为实体类型(-1..3), 做序列标注(B-type/I-type/O).
     若每条样本只有一个实体, 我们就对这个实体做B-type/I-type, 其余token为O.
     """
 
@@ -48,13 +48,13 @@ class MNERDataset(Dataset):
         for i in range(0, len(lines), 4):
             text_with_T = lines[i]
             entity_str = lines[i+1]
-            entity_type_str = lines[i+2]  # -1 0 1 2
+            entity_type_str = lines[i+2]  # -1 0 1 2 3
             image_name = lines[i+3]
             if not image_name.endswith(".jpg"):
                 image_name += ".jpg"
             image_path = os.path.join(self.image_dir, image_name)
 
-            entity_type = int(entity_type_str)  # -1..2
+            entity_type = int(entity_type_str)  # -1..2 3
             samples.append((text_with_T, entity_str, entity_type, image_path))
         return samples
 
@@ -73,7 +73,7 @@ class MNERDataset(Dataset):
         assert end_pos < len(replaced_text), "End position out of range!"
 
         # 构建字符级标签：默认均为 O（0），对实体部分设定 B/I 标签
-        t = self.type_map[entity_type]  # => t in [0..3]
+        t = self.type_map[entity_type]  # => t in [0..4]
         # B-type => 1 + 2*t
         # I-type => 2 + 2*t
         # O => 0
@@ -107,7 +107,7 @@ class MNERDataset(Dataset):
                     label_ids.append(0)
                 else:
                     label_ids.append(entity_labels[0])
-        assert any(label in {1, 2, 3, 4, 5, 6, 7, 8} for label in label_ids), f"No valid entity labels (1-8) found. Check text: '{replaced_text}', entity: '{entity_str}', type: {entity_type}"
+        assert any(label in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10} for label in label_ids), f"No valid entity labels (1-10) found. Check text: '{replaced_text}', entity: '{entity_str}', type: {entity_type}"
         encoded.pop("offset_mapping")
 
         image_tensor = self._load_image(image_path)
