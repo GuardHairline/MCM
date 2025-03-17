@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def plot_acc_matrix(acc_matrix, base_name):
+def plot_acc_matrix(acc_matrix, sessions, base_name):
     """
     acc_matrix 是一个列表列表，每一行的长度依次增加，表示
     第 i 次任务训练结束后在前 i 个任务上的测试准确率。
@@ -20,6 +20,10 @@ def plot_acc_matrix(acc_matrix, base_name):
     plt.figure(figsize=(6, 5))
     im = plt.imshow(matrix, cmap='viridis', interpolation='nearest')
     plt.title('Accuracy Matrix')
+    # 提取前 n 个会话名称作为标签
+    session_names = [s["session_name"] for s in sessions][:n]
+    plt.xticks(ticks=np.arange(n), labels=session_names, rotation=45)
+    plt.yticks(ticks=np.arange(n), labels=session_names)
     plt.xlabel('Test Task Index')
     plt.ylabel('Train Task Index')
     plt.colorbar(im, label='Accuracy (%)')
@@ -27,7 +31,16 @@ def plot_acc_matrix(acc_matrix, base_name):
     for i in range(n):
         for j in range(n):
             if not np.isnan(matrix[i, j]):
-                plt.text(j, i, f"{matrix[i, j]:.1f}", ha="center", va="center", color="white", fontsize=10)
+                # 从训练会话（行 i）中提取 replay_sessions 列表
+                replay_sessions = sessions[i].get("details", {}).get("replay_sessions", [])
+                # 从测试会话（列 j）中获取 session_name
+                test_session_name = sessions[j].get("session_name", "")
+                # 如果测试会话的 session_name 出现在训练会话的 replay_sessions 列表中，则加上 *
+                if test_session_name in replay_sessions:
+                    text_str = f"{matrix[i, j]:.1f}*"
+                else:
+                    text_str = f"{matrix[i, j]:.1f}"
+                plt.text(j, i, text_str, ha="center", va="center", color="white", fontsize=10)
     plt.tight_layout()
 
     # 创建保存图片的目录
@@ -90,7 +103,7 @@ def main():
     os.makedirs("checkpoints", exist_ok=True)
 
     # 修改下面路径为你实际的 train_info.json 文件路径
-    json_file = "checkpoints/train_info_200_none.json"
+    json_file = "checkpoints/train_info_200_replay_text.json"
     base_name = os.path.splitext(os.path.basename(json_file))[0]
     with open(json_file, "r", encoding="utf-8") as f:
         train_info = json.load(f)
@@ -99,7 +112,7 @@ def main():
     sessions = train_info.get("sessions", [])
 
     # 绘制 acc_matrix 热力图
-    plot_acc_matrix(acc_matrix, base_name)
+    plot_acc_matrix(acc_matrix, sessions, base_name)
     # 绘制 CL 指标随任务变化的趋势图
     plot_final_metrics(sessions, base_name)
 
