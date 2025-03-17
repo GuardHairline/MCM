@@ -223,9 +223,22 @@ def train(args, logger):
 
             # 如果开启了经验重放，则进行重放
             if args.replay == 1 and replay_memory.do_replay(epoch + 1, full_model, device, args):
-                replay_session = replay_memory.sample_replay_session(epoch + 1, full_model, device, args)
-                if replay_session is not None:
-                    replay_loss = replay_memory.run_replay_step(replay_session, full_model, epoch + 1, device, args)
+                replay_session_name = replay_memory.sample_replay_session(epoch + 1, full_model, device, args)
+                if replay_session_name is not None:
+                    # 从历史会话中查找对应的 session_info，提取该任务的 args
+                    replay_session_info = next(
+                        (s for s in train_info["sessions"] if s["session_name"] == replay_session_name), None)
+                    if replay_session_info is not None:
+                        replay_args = replay_session_info["args"]
+                    else:
+                        # 如果找不到，还是采用当前 args（或抛出异常，根据需要处理）
+                        replay_args = vars(args)
+                    # 记录下来每次触发重放的会话名称
+                    if "replay_sessions" not in session_info["details"]:
+                        session_info["details"]["replay_sessions"] = []
+                    session_info["details"]["replay_sessions"].append(replay_session_name)
+                    replay_loss = replay_memory.run_replay_step(replay_session_name, full_model, epoch + 1, device,
+                                                                replay_args)
                     logger.info("Replay loss: %.4f", replay_loss.item())
 
             scheduler.step()
@@ -280,12 +293,12 @@ def train(args, logger):
         final_dev_metrics = evaluate_single_task(full_model, new_task_name, "dev", device, args)
         final_test_metrics = evaluate_single_task(full_model, new_task_name, "test", device, args)
 
-        session_info["details"] = {
+        session_info["details"].update({
             "epoch_losses": epoch_losses,
             "dev_metrics_history": dev_metrics_history,
             "final_dev_metrics": final_dev_metrics,
             "final_test_metrics": final_test_metrics
-        }
+        })
 
         # ========== 7) 更新 EWC fisher ==========
         if ewc:
