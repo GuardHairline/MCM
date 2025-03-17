@@ -204,15 +204,40 @@ class ExperienceReplayMemory:
         attention_mask = replay_batch["attention_mask"]
         token_type_ids = replay_batch.get("token_type_ids", None)
         image_tensor = replay_batch["image_tensor"]
-
-        # 调用模型，获得 logits
-        logits = model(input_ids, attention_mask, token_type_ids, image_tensor)
-
-        # 计算交叉熵损失，使用 replay_batch 中的 labels 作为目标
         labels = replay_batch["labels"]
-        loss = nn.functional.cross_entropy(logits, labels)
 
-        # 反向传播并更新模型参数
+        # 调用模型 forward 得到 logits
+        logits = model(input_ids, attention_mask, token_type_ids, image_tensor)
+        if isinstance(args, dict):
+            task_name = args.get("task_name")
+            num_labels = args.get("num_labels")
+        else:
+            task_name = args.task_name
+            num_labels = args.num_labels
+        # 判断是否为序列任务（例如 MNER、MATE、MABSA）
+        if task_name in ["mate", "mner", "mabsa"]:
+            # 根据任务选择对应的 class_weights（如果需要使用权重的话）
+            if task_name == "mate":
+                class_weights = torch.tensor([1.0, 15.0, 15.0], device=device)
+            elif task_name == "mner":
+                if num_labels == 9:
+                    class_weights = torch.tensor([0.1, 164.0, 10.0, 270.0, 27.0, 340.0, 16.0, 360.0, 2.0],
+                                                 device=device)
+                elif num_labels == 11:
+                    class_weights = torch.tensor([0.1, 164.0, 10.0, 270.0, 27.0, 340.0, 16.0, 360.0, 2.0, 100.0, 10.0],
+                                                 device=device)
+            elif task_name == "mabsa":
+                class_weights = torch.tensor([1.0, 3700.0, 234.0, 480.0, 34.0, 786.0, 69.0], device=device)
+            loss = nn.functional.cross_entropy(
+                logits.view(-1, num_labels),
+                labels.view(-1),
+                weight=class_weights,
+                ignore_index=-100
+            )
+        else:
+            # 对于句级分类等其他任务直接计算 loss
+            loss = nn.functional.cross_entropy(logits, labels)
+
         loss.backward()
         optimizer.step()
 
