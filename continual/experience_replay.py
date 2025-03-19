@@ -206,16 +206,22 @@ class ExperienceReplayMemory:
         image_tensor = replay_batch["image_tensor"]
         labels = replay_batch["labels"]
 
-        # 调用模型 forward 得到 logits
-        logits = model(input_ids, attention_mask, token_type_ids, image_tensor)
+
         if isinstance(args, dict):
             task_name = args.get("task_name")
             num_labels = args.get("num_labels")
         else:
             task_name = args.task_name
             num_labels = args.num_labels
+
+
         # 判断是否为序列任务（例如 MNER、MATE、MABSA）
         if task_name in ["mate", "mner", "mabsa"]:
+            fused_feat = model.base_model(
+                input_ids, attention_mask, token_type_ids, image_tensor,
+                return_sequence=True
+            )
+            logits = model.head(fused_feat)  # => (batch_size, seq_len, num_labels)
             # 根据任务选择对应的 class_weights（如果需要使用权重的话）
             if task_name == "mate":
                 class_weights = torch.tensor([1.0, 15.0, 15.0], device=device)
@@ -235,8 +241,14 @@ class ExperienceReplayMemory:
                 ignore_index=-100
             )
         else:
-            # 对于句级分类等其他任务直接计算 loss
-            loss = nn.functional.cross_entropy(logits, labels)
+            # 句级分类: return_sequence=False => (batch_size, fusion_dim)
+            fused_feat = model.base_model(
+                input_ids, attention_mask, token_type_ids, image_tensor,
+                return_sequence=False
+            )
+            logits = model.head(fused_feat)  # => (batch_size, num_labels)
+
+            loss = nn.functional.cross_entropy(logits, labels)  # => (batch_size)
 
         loss.backward()
         optimizer.step()
