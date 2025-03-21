@@ -128,7 +128,7 @@ def train(args, logger):
 
     # ========== 5) 训练该任务 ==========
     optimizer = AdamW(full_model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = StepLR(optimizer, step_size=2, gamma=0.1)
+    scheduler = StepLR(optimizer, step_size=args.step_size, gamma=args.gamma)
     train_dataset = get_dataset(new_task_name, "train", args)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
 
@@ -369,6 +369,9 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--num_labels", type=int, default=3)  # -1, 0, 1
     parser.add_argument("--hidden_dim", type=int, default=768)
+    parser.add_argument("--step_size", type=int, default=2)
+    parser.add_argument("--gamma", type=float, default=0.1)
+
     parser.add_argument("--mode", type=str, default="multimodal")  # text_only / multimodal
     parser.add_argument("--ewc_lambda", type=float, default=1000)
 
