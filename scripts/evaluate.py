@@ -63,44 +63,71 @@ def evaluate_single_task(model, task_name, split, device, args):
 
 
             if is_sequence_task:
+                # 获取序列特征，形状为 (batch_size, seq_len, fusion_dim)
+                fused_feat = model.base_model(
+                    input_ids, attention_mask, token_type_ids, image_tensor,
+                    return_sequence=True
+                )
                 # 统计标签数量（排除-100）
                 for label in labels.view(-1).cpu().tolist():
                     if label != -100:
                         label_counter[label] += 1
 
-                fused_feat = model.base_model(input_ids, attention_mask, token_type_ids, image_tensor, return_sequence=True)
-                logits = model.head(fused_feat)
-                # logits: [batch_size, seq_len, num_labels]
-                # preds => [batch_size, seq_len]
-                preds = torch.argmax(logits, dim=2)
+                if task_name == "mate":
+                    # mate 使用 CRF，因此 head 返回的是 list[List[int]]
+                    preds_list = model.head(fused_feat, labels=None)  # 进行推理，不传 labels
+                    # 构造 mask：仅保留有效 token（labels != -100）
+                    mask = (labels != -100)
+                    batch_preds = []
+                    batch_labels = []
+                    # 遍历每个序列
+                    for i in range(labels.size(0)):
+                        # 对于每个样本，取出 mask 有效的 token 位置
+                        seq_mask = mask[i]
+                        true_labels = labels[i][seq_mask].cpu().tolist()
+                        # preds_list[i] 的长度应当与 seq_mask.sum() 相等
+                        pred_labels = preds_list[i]
+                        batch_preds.append(pred_labels)
+                        batch_labels.append(true_labels)
+                        # 对当前序列进行 chunk-level 解码
+                        pred_chunks = decode_mate(pred_labels)
+                        gold_chunks = decode_mate(true_labels)
+                        all_chunks_pred.append(pred_chunks)
+                        all_chunks_gold.append(gold_chunks)
+                        # 将所有样本的 token 预测和真实标签展平后汇总
+                    for seq in batch_preds:
+                        all_preds_token.extend(seq)
+                    for seq in batch_labels:
+                        all_labels_token.extend(seq)
+                else:
+                    logits = model.head(fused_feat)        # logits: [batch_size, seq_len, num_labels]
+                    preds = torch.argmax(logits, dim=2)   # preds => [batch_size, seq_len]
+                    # 将它们 flatten (含-100) 以计算 token-level 参考指标
+                    all_preds_token.extend(preds.view(-1).cpu().tolist())
+                    all_labels_token.extend(labels.view(-1).cpu().tolist())
 
-                # 将它们 flatten (含-100) 以计算 token-level 参考指标
-                all_preds_token.extend(preds.view(-1).cpu().tolist())
-                all_labels_token.extend(labels.view(-1).cpu().tolist())
+                    # 开始做 chunk-level decode
+                    bsz, seqlen = preds.shape
+                    for i in range(bsz):
+                        # 过滤 -100
+                        valid_len = (labels[i] != -100).sum().item() + 1
+                        pred_i = preds[i, :valid_len].cpu().tolist()
+                        gold_i = labels[i, :valid_len].cpu().tolist()
 
-                # 开始做 chunk-level decode
-                bsz, seqlen = preds.shape
-                for i in range(bsz):
-                    # 过滤 -100
-                    valid_len = (labels[i] != -100).sum().item() + 1
-                    pred_i = preds[i, :valid_len].cpu().tolist()
-                    gold_i = labels[i, :valid_len].cpu().tolist()
+                        if task_name == "mner":
+                            pred_chunks = decode_mner(pred_i)
+                            gold_chunks = decode_mner(gold_i)
+                        elif task_name == "mabsa":
+                            pred_chunks = decode_mabsa(pred_i)
+                            gold_chunks = decode_mabsa(gold_i)
+                        else:
+                            pred_chunks = set()
+                            gold_chunks = set()
 
-                    if task_name == "mate":
-                        pred_chunks = decode_mate(pred_i)
-                        gold_chunks = decode_mate(gold_i)
-                    elif task_name == "mner":
-                        pred_chunks = decode_mner(pred_i)
-                        gold_chunks = decode_mner(gold_i)
-                    elif task_name == "mabsa":
-                        pred_chunks = decode_mabsa(pred_i)
-                        gold_chunks = decode_mabsa(gold_i)
-                    else:
-                        pred_chunks = set()
-                        gold_chunks = set()
-
-                    all_chunks_pred.append(pred_chunks)
-                    all_chunks_gold.append(gold_chunks)
+                        all_chunks_pred.append(pred_chunks)
+                        all_chunks_gold.append(gold_chunks)
+                        all_preds_token.extend(pred_i)
+                        all_labels_token.extend(gold_i)
 
                     # # ========== Debug Print: 只打印前 debug_print_limit 条 ==========
                     # if debug_print_count < debug_print_limit:
