@@ -49,9 +49,9 @@ def train(args, logger):
         with open(args.train_info_json, "r", encoding="utf-8") as f:
             try:
                 train_info = json.load(f)
-                logger.info(f"Loaded existing training info from {args.train_info_json}")
+                logger.info(f"Loaded existing training info")
             except:
-                logger.warning(f"Failed to load {args.train_info_json}, using empty info.")
+                logger.warning(f"Failed to load, using empty info.")
                 train_info = {}
     if "tasks" not in train_info:
         train_info["tasks"] = []
@@ -133,19 +133,19 @@ def train(args, logger):
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
 
     tokenizer = train_dataset.tokenizer
-    for batch in train_loader:
-        # 输出前两条样例
-        for i in range(min(10, batch["input_ids"].size(0))):
-            tokens = tokenizer.convert_ids_to_tokens(batch["input_ids"][i].tolist())
-            decoded_tokens = "|".join(tokens)
-            print(f"Sample {i} decoded text: {decoded_tokens}")
-            print(f"Sample {i} labels: {batch['labels'][i].tolist()}")
-        # 输出各字段张量的尺寸
-        print("input_ids shape:", batch["input_ids"].shape)
-        print("attention_mask shape:", batch["attention_mask"].shape)
-        if "token_type_ids" in batch:
-            print("token_type_ids shape:", batch["token_type_ids"].shape)
-        break  # 只处理第一个 batch
+    # for batch in train_loader:
+    #     # 输出前两条样例
+    #     for i in range(min(2, batch["input_ids"].size(0))):
+    #         tokens = tokenizer.convert_ids_to_tokens(batch["input_ids"][i].tolist())
+    #         decoded_tokens = "|".join(tokens)
+    #         print(f"Sample {i} decoded text: {decoded_tokens}")
+    #         print(f"Sample {i} labels: {batch['labels'][i].tolist()}")
+    #     # 输出各字段张量的尺寸
+    #     print("input_ids shape:", batch["input_ids"].shape)
+    #     print("attention_mask shape:", batch["attention_mask"].shape)
+    #     if "token_type_ids" in batch:
+    #         print("token_type_ids shape:", batch["token_type_ids"].shape)
+    #     break  # 只处理第一个 batch
 
     # 早停逻辑需要
     patience = args.patience
@@ -184,11 +184,8 @@ def train(args, logger):
                     if args.task_name == "mate":
                         class_weights = torch.tensor([1.0, 15.0, 15.0], device=device)
                     elif args.task_name == "mner":
-                        if args.num_labels == 9:
-                            class_weights = torch.tensor([0.1, 164.0, 10.0, 270.0, 27.0, 340.0, 16.0, 360.0, 2.0],
+                        class_weights = torch.tensor([0.1, 164.0, 10.0, 270.0, 27.0, 340.0, 16.0, 360.0, 2.0],
                                                          device=device)
-                        elif args.num_labels == 11:
-                            class_weights = torch.tensor([0.1, 164.0, 10.0, 270.0, 27.0, 340.0, 16.0, 360.0, 2.0, 100.0, 10.0], device=device)
                     elif args.task_name == "mabsa":
                         class_weights = torch.tensor([1.0, 3700.0, 234.0, 480.0, 34.0, 786.0, 69.0], device=device)
                     loss = nn.functional.cross_entropy(
@@ -358,19 +355,19 @@ def parse_args():
     parser.add_argument("--train_text_file", type=str, default="data/MASC/twitter2015/train.txt")
     parser.add_argument("--test_text_file", type=str, default="data/MASC/twitter2015/test.txt")
     parser.add_argument("--dev_text_file", type=str, default="data/MASC/twitter2015/dev.txt")
-    parser.add_argument("--image_dir", type=str, default="data/MASC/twitter2015/images")
+    parser.add_argument("--image_dir", type=str, default="data/img")
     parser.add_argument("--text_model_name", type=str, default="microsoft/deberta-v3-base")
     parser.add_argument("--image_model_name", type=str, default="google/vit-base-patch16-224")
     parser.add_argument("--fusion_strategy", type=str, default="multi_head_attention",
                         choices=["concat", "multi_head_attention", "add"])
     parser.add_argument("--num_heads", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--lr", type=float, default=1e-5)
-    parser.add_argument("--epochs", type=int, default=5)
+    parser.add_argument("--lr", type=float, default=5e-5)  # 1e-5
+    parser.add_argument("--epochs", type=int, default=20)  # 5
     parser.add_argument("--num_labels", type=int, default=3)  # -1, 0, 1
     parser.add_argument("--hidden_dim", type=int, default=768)
-    parser.add_argument("--step_size", type=int, default=2)
-    parser.add_argument("--gamma", type=float, default=0.1)
+    parser.add_argument("--step_size", type=int, default=10)  # 2
+    parser.add_argument("--gamma", type=float, default=0.5)  # 0.1
 
     parser.add_argument("--mode", type=str, default="multimodal")  # text_only / multimodal
     parser.add_argument("--ewc_lambda", type=float, default=1000)
