@@ -19,8 +19,15 @@ log/
 *.jpg
 *.jpeg
 
+# 忽视模型文件
+*.pt
+
 # 忽视数据
-data/
+data/img/
+data/twitter2015_images/
+data/twitter2017_images/
+data/mix.zip
+data/mix_mnre_1819/
 
 **/__pycache__/
 downloaded_model/
