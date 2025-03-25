@@ -64,7 +64,7 @@ def train(args, logger):
     # 旧任务数量
     old_sessions = train_info["sessions"]  # list[str]
     old_sessions_count = len(old_sessions)
-    logger.info(f"Previously learned sessions: {old_sessions} (count={old_sessions_count})")
+    # logger.info(f"Previously learned sessions: {old_sessions} (count={old_sessions_count})")
 
     # ========== 2) 将 train_info["acc_matrix"] 载入到 ContinualMetrics 里 ==========
     cm = ContinualMetrics()

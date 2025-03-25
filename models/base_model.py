@@ -94,9 +94,7 @@ class BaseMultimodalModel(nn.Module):
                 return text_cls  # 返回[CLS]向量
 
         # ====== 图像特征 ======
-        img_feat = self.image_encoder(image_tensor)  # shape [batch_size, 2048, 1, 1]
-        img_feat = img_feat.view(img_feat.size(0), -1)  # [batch_size, 2048]
-        img_feat = self.image_proj(img_feat)           # [batch_size, text_hidden_size]
+        img_feat = self.get_image_features(image_tensor)
 
         # ====== 多模态融合 ======
 
