@@ -27,12 +27,15 @@ class BaseMultimodalModel(nn.Module):
         if text_model_name == "microsoft/deberta-v3-base":
             model_path = "downloaded_model/deberta-v3-base"
 
+        if image_model_name == "google/vit-base-patch16-224-in21k":
+            image_model_path = "downloaded_model/vit-base-patch16-224-in21k"
+
         # 文本编码器 (DeBERTa)
         self.text_encoder = AutoModel.from_pretrained(model_path)
         self.text_hidden_size = self.text_encoder.config.hidden_size
 
         # 图像编码器 (ViT)
-        self.image_encoder = AutoModel.from_pretrained(image_model_name)
+        self.image_encoder = AutoModel.from_pretrained(image_model_path)
         self.image_hidden_size = self.image_encoder.config.hidden_size
 
         # 可以在这里定义一个线性变换，使image特征和text特征映射到同一维度
