@@ -357,7 +357,7 @@ def parse_args():
     parser.add_argument("--dev_text_file", type=str, default="data/MASC/twitter2015/dev.txt")
     parser.add_argument("--image_dir", type=str, default="data/img")
     parser.add_argument("--text_model_name", type=str, default="microsoft/deberta-v3-base")
-    parser.add_argument("--image_model_name", type=str, default="google/vit-base-patch16-224")
+    parser.add_argument("--image_model_name", type=str, default="google/vit-base-patch16-224-in21k")
     parser.add_argument("--fusion_strategy", type=str, default="multi_head_attention",
                         choices=["concat", "multi_head_attention", "add"])
     parser.add_argument("--num_heads", type=int, default=8)
