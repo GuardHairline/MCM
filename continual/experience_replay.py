@@ -13,6 +13,7 @@ from torch.utils.data._utils.collate import default_collate
 from scripts.evaluate import evaluate_single_task
 from datasets.get_dataset import get_dataset  # 使用你现有的 get_dataset 函数
 from utils.logging import setup_logger
+from models.task_heads.get_head import get_head
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +222,21 @@ class ExperienceReplayMemory:
                 input_ids, attention_mask, token_type_ids, image_tensor,
                 return_sequence=True
             )
-            logits = model.head(fused_feat)  # => (batch_size, seq_len, num_labels)
+
+            tmp_head = get_head(task_name, model.base_model, args).to(device)
+            logits = tmp_head(fused_feat)  # => (batch_size, seq_len, num_labels)
+
+            # 调试输出：打印原始 logits 和 labels 的形状
+            logger.info("Debug: 原始 logits shape: %s", logits.shape)
+            logger.info("Debug: 原始 labels shape: %s", labels.shape)
+
+            # 扁平化 logits 和 labels
+            logits = logits.view(-1, num_labels)  # 扁平化 logits 为 (batch_size * seq_len, num_labels)
+            labels = labels.view(-1)  # 扁平化 labels 为 (batch_size * seq_len)
+
+            logger.info("Debug: 扁平化后 logits shape: %s", logits.shape)
+            logger.info("Debug: 扁平化后 labels shape: %s", labels.shape)
+
             # 根据任务选择对应的 class_weights（如果需要使用权重的话）
             if task_name == "mate":
                 class_weights = torch.tensor([1.0, 15.0, 15.0], device=device)
@@ -231,8 +246,8 @@ class ExperienceReplayMemory:
             elif task_name == "mabsa":
                 class_weights = torch.tensor([1.0, 3700.0, 234.0, 480.0, 34.0, 786.0, 69.0], device=device)
             loss = nn.functional.cross_entropy(
-                logits.view(-1, num_labels),
-                labels.view(-1),
+                logits,
+                labels,
                 weight=class_weights,
                 ignore_index=-100
             )
