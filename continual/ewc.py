@@ -81,6 +81,7 @@ class MultiTaskEWC:
 
         device = next(model.parameters()).device
         loss_ewc = torch.tensor(0., device=device)
+
         for n, p in model.named_parameters():
             if n in self.fisher_all:
                 fisher_val = self.fisher_all[n].to(device)
@@ -113,6 +114,7 @@ class MultiTaskEWC:
         # 如果是 Dataloader, 就 iterate
         self.model.eval()
         count = 0
+        sample_data = []
 
         if hasattr(dataset_or_loader, "__len__") and not hasattr(dataset_or_loader, "batch_size"):
             # dataset
@@ -123,14 +125,12 @@ class MultiTaskEWC:
             sample_data = [dataset_or_loader[i] for i in indices]
         else:
             # assume it's DataLoader
-            sample_data = []
             for batch in dataset_or_loader:
                 sample_data.append(batch)
                 count += 1
                 if count>=sample_size:
                     break
 
-        count = 0
         for batch in sample_data:
             # 组装输入
             input_ids = batch["input_ids"].to(device)
@@ -150,7 +150,6 @@ class MultiTaskEWC:
             for n, p in self.model.named_parameters():
                 if p.grad is not None:
                     fisher_dict[n] += p.grad**2
-            count += 1
 
         for n in fisher_dict:
             if count>0:
