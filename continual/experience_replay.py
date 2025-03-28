@@ -226,16 +226,12 @@ class ExperienceReplayMemory:
             tmp_head = get_head(task_name, model.base_model, args).to(device)
             logits = tmp_head(fused_feat)  # => (batch_size, seq_len, num_labels)
 
-            # 调试输出：打印原始 logits 和 labels 的形状
-            logger.info("Debug: 原始 logits shape: %s", logits.shape)
-            logger.info("Debug: 原始 labels shape: %s", labels.shape)
+
 
             # 扁平化 logits 和 labels
             logits = logits.view(-1, num_labels)  # 扁平化 logits 为 (batch_size * seq_len, num_labels)
             labels = labels.view(-1)  # 扁平化 labels 为 (batch_size * seq_len)
 
-            logger.info("Debug: 扁平化后 logits shape: %s", logits.shape)
-            logger.info("Debug: 扁平化后 labels shape: %s", labels.shape)
 
             # 根据任务选择对应的 class_weights（如果需要使用权重的话）
             if task_name == "mate":
