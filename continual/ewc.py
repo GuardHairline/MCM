@@ -40,10 +40,15 @@ class MultiTaskEWC:
         加载所有历史任务的 Fisher 和 optpar 信息，
         只会加载之前保存的任务，如果是第一次任务，这里不会加载任何内容。
         """
-        # 如果没有任务历史，则跳过
+        # 如果没有 train_info 文件，则跳过
         if not os.path.exists(self.ewc_dir):
             os.makedirs(self.ewc_dir)
             logger.info(f"EWC directory '{self.ewc_dir}' created.")
+
+        # 如果没有历史任务信息文件（train_info），则跳过
+        if "sessions" not in train_info:
+            logger.warning("No previous sessions in train_info, skipping loading of Fisher and optpar.")
+            return
 
         self.fisher_all = {}
         self.optpar_all = {}
@@ -186,9 +191,10 @@ class MultiTaskEWC:
                 loss = nn.functional.cross_entropy(logits, labels)  # => (batch_size)
             loss.backward()
 
+            # 计算 Fisher 信息并累计
             for n, p in self.model.named_parameters():
                 if p.grad is not None:
-                    fisher_dict[n] += p.grad**2
+                    fisher_dict[n] += p.grad ** 2
 
             # 每batch_save_interval个批次保存一次
             batch_count += 1
@@ -202,3 +208,4 @@ class MultiTaskEWC:
         # 最后保存
         fisher_path = os.path.join(self.ewc_dir, f"{self.session_name}_fisher_final.pt")
         torch.save({'fisher': fisher_dict, 'optpar': optpar_dict}, fisher_path)
+        logger.info(f"Final Fisher and Optpar saved for task={self.session_name} => {fisher_path}")
