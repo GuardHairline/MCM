@@ -19,6 +19,7 @@ from models.task_heads.get_head import get_head
 from continual.ewc import MultiTaskEWC  # 如果需要 EWC
 from continual.metrics import ContinualMetrics, compute_metrics_example
 from utils.logging import setup_logger
+from utils.ensureFileExists import ensure_directory_exists
 import logging
 
 
@@ -41,6 +42,9 @@ def train(args, logger):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     new_task_name = args.task_name
+    ensure_directory_exists(args.train_info_json)
+    ensure_directory_exists(args.ewc_dir)
+    ensure_directory_exists(args.output_model_path)
 
     logger.info(f"=== Start training for new task: {new_task_name} ===")
     # ========== 1) 从 JSON 加载或初始化 train_info ==========
