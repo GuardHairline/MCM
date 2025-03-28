@@ -108,6 +108,7 @@ def train(args, logger):
             model=full_model,
             current_task_name=new_task_name,
             session_name=args.session_name,
+            num_labels=args.num_labels,
             ewc_lambda=args.ewc_lambda,
             ewc_dir=args.ewc_dir  # 可以直接传递到 ewc_dir
         )
@@ -393,7 +394,7 @@ def parse_args():
     # == Continual Learning 相关 ==
     parser.add_argument("--ewc", type=int, default=0, help="whether to use ewc")
     parser.add_argument("--ewc_dir", type=str, default="ewc_params", help="Directory to save EWC params")
-    parser.add_argument("--ewc_lambda", type=float, default=1000)
+    parser.add_argument("--ewc_lambda", type=float, default=100)
     parser.add_argument("--parallel", type=int, default=0, help="whether to use ewc")
     parser.add_argument("--replay", type=int, default=1, help="whether to use experience replay")
     parser.add_argument("--memory_percentage", type=int, default=0.05, help="whether to use experience replay")
