@@ -1,5 +1,5 @@
 # masc_2015
-python -m scripts.train --task_name=masc --session_name=masc_1 --output_model_path=checkpoints/1.pt --train_info_json=checkpoints/train_info_twitter2015_replayEwc_text.json --num_labels=3 --mode=text_only --epoch=5 --lr=1e-5 --step_size=2 --gamma=0.1 --replay=1
+python -m scripts.train --task_name=masc --session_name=masc_1 --output_model_path=checkpoints/1.pt --train_info_json=checkpoints/train_info_twitter2015_replayEwc_text.json --num_labels=3 --mode=text_only --epoch=5 --lr=1e-5 --step_size=2 --gamma=0.1 --replay=1 --ewc=1
 # mate_2015
 python -m scripts.train --task_name=mate --session_name=mate_1 --pretrained_model_path=checkpoints/1.pt --output_model_path=checkpoints/1.pt --num_labels=3 --mode=text_only --train_info_json=checkpoints/train_info_twitter2015_replayEwc_text.json --replay=1 --ewc=1
 # mner_2015
