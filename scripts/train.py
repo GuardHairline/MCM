@@ -79,7 +79,9 @@ def train(args, logger):
         "epochs": args.epochs,
         "details": {},  # 训练过程中收集的数据
         "final_metrics": None,
-        "args": vars(args)
+        "args": vars(args),
+        "fisher_file": os.path.join(args.ewc_dir, f"{args.session_name}_fisher.pt")  # 保存 Fisher 文件路径
+
     }
 
     # ========== 4) 创建模型 + (可选) Continual Learning 策略 ==========
@@ -98,16 +100,19 @@ def train(args, logger):
     full_model = Full_Model(base_model, head, dropout_prob=args.dropout_prob)
     full_model.to(device)
 
-    # 若不是第一次，则可以加载 EWC fisher
+    # 初始化 EWC
     ewc = None
-    if old_sessions_count > 0 and args.ewc == 1:
+    if args.ewc == 1:  # 检查是否启用了 EWC
+        logger.info("进入 EWC 模式")
         ewc = MultiTaskEWC(
             model=full_model,
             current_task_name=new_task_name,
+            session_name=args.session_name,
             ewc_lambda=args.ewc_lambda,
-            ewc_dir="ewc_params"  # 你定义的保存EWC参数的目录
+            ewc_dir=args.ewc_dir  # 可以直接传递到 ewc_dir
         )
-        ewc.load_all_previous_tasks()
+        if old_sessions_count > 0:
+            ewc.load_all_previous_tasks(train_info)  # 加载历史任务的 Fisher 和 optpar 数据
 
     replay_memory = None
     if args.replay == 1:
@@ -290,16 +295,20 @@ def train(args, logger):
         final_dev_metrics = evaluate_single_task(full_model, new_task_name, "dev", device, args)
         final_test_metrics = evaluate_single_task(full_model, new_task_name, "test", device, args)
 
-        session_info["details"].update({
-            "epoch_losses": epoch_losses,
-            "dev_metrics_history": dev_metrics_history,
-            "final_dev_metrics": final_dev_metrics,
-            "final_test_metrics": final_test_metrics
-        })
 
         # ========== 7) 更新 EWC fisher ==========
+        session_info["fisher_file"] = os.path.join(args.ewc_dir, f"{args.session_name}_fisher.pt")
+
         if ewc:
             ewc.estimate_and_save_fisher(train_loader, device=device, sample_size=200)
+            #
+            # # 保存 EWC 文件
+            # fisher_path = os.path.join(args.ewc_dir, f"{args.session_name}_fisher.pt")
+            # torch.save({
+            #     'fisher': ewc.fisher_all,
+            #     'optpar': ewc.optpar_all
+            # }, fisher_path)
+            # logger.info(f"Saved Fisher and Optpar for task={new_task_name} => {fisher_path}")
 
         # ========== 8) 保存最终模型 (可选) ==========
         torch.save(full_model.state_dict(), args.output_model_path)
@@ -328,7 +337,12 @@ def train(args, logger):
             logger.info(f"Continual Metrics after learning {k} tasks: {final_metrics}")
 
         session_info["final_metrics"] = final_metrics
-
+        session_info["details"].update({
+            "epoch_losses": epoch_losses,
+            "dev_metrics_history": dev_metrics_history,
+            "final_dev_metrics": final_dev_metrics,
+            "final_test_metrics": final_test_metrics
+        })
         # ========== 10) 更新 train_info ==========
         train_info["acc_matrix"] = cm.acc_matrix
         train_info["sessions"].append(session_info)
@@ -370,7 +384,6 @@ def parse_args():
     parser.add_argument("--gamma", type=float, default=0.5)  # 0.1
 
     parser.add_argument("--mode", type=str, default="multimodal")  # text_only / multimodal
-    parser.add_argument("--ewc_lambda", type=float, default=1000)
 
     # == 新增正则化和防过拟合的超参 ==
     parser.add_argument("--weight_decay", type=float, default=1e-5, help="Weight decay (L2 regularization).")
@@ -379,6 +392,8 @@ def parse_args():
 
     # == Continual Learning 相关 ==
     parser.add_argument("--ewc", type=int, default=0, help="whether to use ewc")
+    parser.add_argument("--ewc_dir", type=str, default="ewc_params", help="Directory to save EWC params")
+    parser.add_argument("--ewc_lambda", type=float, default=1000)
     parser.add_argument("--parallel", type=int, default=0, help="whether to use ewc")
     parser.add_argument("--replay", type=int, default=1, help="whether to use experience replay")
     parser.add_argument("--memory_percentage", type=int, default=0.05, help="whether to use experience replay")
