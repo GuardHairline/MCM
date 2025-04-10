@@ -185,8 +185,8 @@ def compare_results(json_file1, json_file2):
 
 
 def main():
-    json_file1 = "checkpoints/train_info_twitterMix_none_text.json"
-    json_file2 = "checkpoints/train_info_twitterMix_replay_text.json"
+    json_file1 = "checkpoints/train_info_twitter2017_none_text.json"
+    json_file2 = "checkpoints/train_info_twitter2017_replay_text.json"
     compare_results(json_file1, json_file2)
 
 

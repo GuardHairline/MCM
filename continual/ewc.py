@@ -141,7 +141,7 @@ class MultiTaskEWC:
                 if count>=sample_size:
                     break
         # 将 Fisher 和 Optpar 分批次保存
-        batch_count = 0  # 记录保存的批次数
+        # batch_count = 0  # 记录保存的批次数
         for batch in sample_data:
             # 组装输入
             input_ids = batch["input_ids"].to(device)
@@ -196,14 +196,14 @@ class MultiTaskEWC:
                 if p.grad is not None:
                     fisher_dict[n] += p.grad ** 2
 
-            # 每batch_save_interval个批次保存一次
-            batch_count += 1
-            if batch_count % batch_save_interval == 0 or batch_count == count:
-                # 保存 Fisher 和 optpar 到 .pt 文件
-                fisher_path = os.path.join(self.ewc_dir, f"{self.session_name}_fisher_batch_{batch_count}.pt")
-                torch.save({'fisher': fisher_dict, 'optpar': optpar_dict}, fisher_path)
-                logger.info(
-                    f"Saved Fisher and Optpar (batch {batch_count}) for task={self.session_name} => {fisher_path}")
+            # # 每batch_save_interval个批次保存一次
+            # batch_count += 1
+            # if batch_count % batch_save_interval == 0 or batch_count == count:
+            #     # 保存 Fisher 和 optpar 到 .pt 文件
+            #     fisher_path = os.path.join(self.ewc_dir, f"{self.session_name}_fisher_batch_{batch_count}.pt")
+            #     torch.save({'fisher': fisher_dict, 'optpar': optpar_dict}, fisher_path)
+            #     logger.info(
+            #         f"Saved Fisher and Optpar (batch {batch_count}) for task={self.session_name} => {fisher_path}")
 
         # 最后保存
         fisher_path = os.path.join(self.ewc_dir, f"{self.session_name}_fisher_final.pt")
