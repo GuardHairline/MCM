@@ -72,8 +72,8 @@ class ExperienceReplayMemory:
     def add_session_memory_buffer(self,
                                   session_info: Dict,
                                   memory_percentage: float,
-                                  replay_ratio: float = 0.25,
-                                  replay_frequency: int = 5,
+                                  replay_ratio: float = 0.5,
+                                  replay_frequency: int = 4,
                                   replay_condition: Callable[[Dict, torch.nn.Module, torch.device, dict], bool] = default_replay_condition):
         """
         注册一个历史训练会话用于经验重放。
@@ -173,7 +173,7 @@ class ExperienceReplayMemory:
             {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
              'weight_decay': 0.0}
         ]
-        lr = 1e-4
+        lr = 5e-4
         optimizer = AdamW(optimizer_grouped_parameters, lr=lr, eps=1e-8, betas=(0.9, 0.98))
         logger.info("会话 '%s' 的重放优化器创建成功，学习率=%.4f", session_name, lr)
         return optimizer
