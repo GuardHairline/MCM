@@ -84,10 +84,9 @@ def train(args, logger):
         "details": {},  # 训练过程中收集的数据
         "final_metrics": None,
         "args": vars(args),
-        "fisher_file": os.path.join(args.ewc_dir, f"{args.session_name}_fisher.pt")  # 保存 Fisher 文件路径
-
     }
-
+    if args.ewc:
+        session_info["fisher_file"] = os.path.join(args.ewc_dir, f"{args.session_name}_fisher.pt")
     # ========== 4) 创建模型 + (可选) Continual Learning 策略 ==========
     base_model = BaseMultimodalModel(
         args.text_model_name,
@@ -130,7 +129,7 @@ def train(args, logger):
             replay_memory.add_session_memory_buffer(
                 session_info=hist_session,
                 memory_percentage=args.memory_percentage,  # 如 0.05
-                replay_ratio=0.25,
+                replay_ratio=args.replay_ratio,
                 replay_frequency=args.replay_frequency,
                 replay_condition=dynamic_condition
             )
@@ -402,7 +401,8 @@ def parse_args():
     parser.add_argument("--parallel", type=int, default=0, help="whether to use ewc")
     parser.add_argument("--replay", type=int, default=1, help="whether to use experience replay")
     parser.add_argument("--memory_percentage", type=int, default=0.05, help="whether to use experience replay")
-    parser.add_argument("--replay_frequency", type=int, default=5, help="whether to use experience replay")
+    parser.add_argument("--replay_ratio", type=float, default=0.5, help="whether to use experience replay")
+    parser.add_argument("--replay_frequency", type=int, default=4, help="whether to use experience replay")
     parser.add_argument("--memory_sampling_strategy", type=str, default='random', choices=['random', 'random-balanced'],
                         help="Strategy for sampling memory buffer samples.")
 
