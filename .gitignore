@@ -4,6 +4,12 @@ checkpoints/
 # 忽视ewc参数文件
 ewc_params/
 
+# 忽视gem_memory
+gem_memory/
+
+# 忽视doc
+doc/
+
 # 忽略 Python 编译后的文件
 *.pyc
 
@@ -34,3 +40,6 @@ data/mix_mnre_1819/
 
 **/__pycache__/
 downloaded_model/
+
+.vscode/
+

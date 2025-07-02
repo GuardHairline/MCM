@@ -1,5 +1,6 @@
-# scripts/evaluate.py
+# modules/evaluate.py
 from collections import Counter
+
 
 import torch
 from torch.utils.data import DataLoader
@@ -7,23 +8,40 @@ from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 
 from datasets.get_dataset import get_dataset
 from utils.decode import decode_mate, decode_mner, decode_mabsa
+from continual.moe_adapters.ddas_router import DDASRouter
 import logging
 
 logger = logging.getLogger("evaluate")
+
+
+def _need_ddas(args):
+    """统一判断当前会话是否启用 DDAS。"""
+    if isinstance(args, dict):
+        return bool(args.get("ddas", 0))
+    return bool(getattr(args, "ddas", 0))
 def evaluate_single_task(model, task_name, split, device, args):
     """
     对指定任务的 {split} (dev/test) 数据集进行评估，返回准确率(%)。
     """
+    # 读取通用参数
     if isinstance(args, dict):
         batch_size = args.get("batch_size")
+        mode = args.get("mode")
     else:
         batch_size = args.batch_size
+        mode = args.mode
+
+    model.base_model.mode = mode
+    use_ddas = _need_ddas(args) and getattr(model, "ddas", None) is not None
+
+    # 数据
     ds = get_dataset(task_name, split, args)
     loader = DataLoader(ds, batch_size=batch_size, shuffle=False)
     model.eval()
 
     is_sequence_task = (task_name in ["mate", "mner", "mabsa"])
 
+    # 指标积累勇气
     # 用于 token-level (或句级) 计算
     all_preds_token = []
     all_labels_token = []
@@ -70,7 +88,19 @@ def evaluate_single_task(model, task_name, split, device, args):
 
                 fused_feat = model.base_model(input_ids, attention_mask, token_type_ids, image_tensor,
                                               return_sequence=True)
-                logits = model.head(fused_feat)
+                if use_ddas:
+                    # 用 CLS 平均表示决定是否替换
+                    pooled = fused_feat.mean(dim=1)           # (B,H)
+                    branch_mask, _ = model.ddas(pooled)
+                    if (~branch_mask).any():
+                        # 重新用冻结主干特征
+                        plain_feat = model.base_model.base_model(
+                            input_ids[~branch_mask], attention_mask[~branch_mask],
+                            token_type_ids[~branch_mask], image_tensor[~branch_mask],
+                            return_sequence=True
+                        )
+                        fused_feat[~branch_mask] = plain_feat
+                logits = model.head(fused_feat)              # (B,L,C)
                 # logits: [batch_size, seq_len, num_labels]
                 # preds => [batch_size, seq_len]
                 preds = torch.argmax(logits, dim=2)
@@ -129,10 +159,20 @@ def evaluate_single_task(model, task_name, split, device, args):
                 label_counter.update(labels.cpu().tolist())
                 fused_cls = model.base_model(input_ids, attention_mask, token_type_ids, image_tensor,
                                              return_sequence=False)
+                if use_ddas:
+                    branch_mask, _ = model.ddas(fused_cls)
+                    if (~branch_mask).any():
+                        plain_feat = model.base_model.base_model(
+                            input_ids[~branch_mask], attention_mask[~branch_mask],
+                            token_type_ids[~branch_mask], image_tensor[~branch_mask],
+                            return_sequence=False
+                        )
+                        fused_cls[~branch_mask] = plain_feat
                 logits = model.head(fused_cls)  # => (b, num_labels)
                 preds = torch.argmax(logits, dim=1)
                 all_preds_token.extend(preds.cpu().tolist())
                 all_labels_token.extend(labels.cpu().tolist())
+
 
     # === token-level or 句级 ACC ===
     # 先过滤掉 -100
@@ -200,8 +240,12 @@ def evaluate_single_task(model, task_name, split, device, args):
 def evaluate_all_learned_tasks(model, sessions_list, device, train_info):
     acc_list = []
     for session in sessions_list:
+        if "task_name" not in session:
+            logger.info(f"Session {session['session_name']} has no task_name, skipping")
+            continue
         tname = session["task_name"]
         args = session["args"]
+        model.set_active_head(session["session_name"])
         metrics  = evaluate_single_task(model, tname, "test", device, args)
         # 你可取 chunk_f1 或 accuracy 作为acc
         # if tname in ["mate", "mner", "mabsa"]:

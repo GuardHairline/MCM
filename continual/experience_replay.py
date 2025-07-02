@@ -3,6 +3,7 @@ import argparse
 import random
 import logging
 import torch.nn as nn
+import torch.nn.functional as F
 from typing import Dict, Callable
 
 import torch
@@ -10,7 +11,7 @@ from torch.optim import AdamW
 from torch.utils.data._utils.collate import default_collate
 
 # 新增导入：用于实时评估当前模型
-from scripts.evaluate import evaluate_single_task
+from modules.evaluate import evaluate_single_task
 from datasets.get_dataset import get_dataset  # 使用你现有的 get_dataset 函数
 from utils.logging import setup_logger
 from models.task_heads.get_head import get_head
@@ -62,12 +63,79 @@ def make_dynamic_replay_condition(all_sessions: list, threshold_factor: float = 
     return dynamic_condition
 
 class ExperienceReplayMemory:
-    def __init__(self):
+    def __init__(self, fisher_dict: Dict[str, torch.Tensor] = None):
         """
         初始化经验重放内存。内部用 session_memory_buffers 记录每个历史训练会话的重放缓冲区。
         """
         self.session_memory_buffers = {}
-        logger.info("ExperienceReplayMemory 初始化完成，session replay memory 为空。")
+        self.fisher = fisher_dict
+        logger.info("ExperienceReplayMemory 初始化完成 (fisher %sabled)。",
+                    "en" if fisher_dict is not None else "dis")
+
+    def add_fisher_info_to_buffer(self, session_info: Dict, memory_size: int):
+        """
+        如果启用了 Fisher 计算，计算并将 Fisher 敏感度分数添加到缓冲区。
+        """
+        if self.fisher is not None:
+            model = session_info["model"]  # 需在注册时将 model 引入 session_info
+            device = session_info["device"]
+            model.eval()
+            sensitivity = {}
+
+            # 获取完整的数据集和相关参数
+            dataset = session_info["dataset"]
+            batch_collate_fn = session_info["batch_collate_fn"]
+
+            # 计算每个样本的敏感度
+            for idx in range(len(dataset)):
+                sample = dataset[idx]
+                batch = batch_collate_fn([sample])
+
+                # 移动到设备
+                for k, v in batch.items():
+                    if torch.is_tensor(v):
+                        batch[k] = v.to(device)
+
+                logits = model.base_model(
+                    batch["input_ids"], batch["attention_mask"],
+                    batch.get("token_type_ids", None), batch["image_tensor"],
+                    return_sequence=(session_info["task_name"] in ["mate","mner","mabsa"])
+                )
+
+                loss = F.cross_entropy(
+                    model.set_active_head(logits).view(-1, session_info["num_labels"]),
+                    batch["labels"].view(-1),
+                    ignore_index=-100
+                )
+
+                model.zero_grad()
+                loss.backward()
+
+                # 计算敏感度
+                score = 0.0
+                for name, param in model.named_parameters():
+                    if param.grad is None:
+                        continue
+                    Fp = self.fisher.get(name)
+                    if Fp is None:
+                        continue
+                    g2 = (param.grad.detach() ** 2).to(Fp.device)
+                    score += (Fp * g2).sum().item()
+                sensitivity[idx] = score
+
+            # 根据敏感度对所有样本进行排序，并选择前 `memory_size` 个样本
+            sorted_idxs = sorted(sensitivity.keys(), key=lambda i: sensitivity[i], reverse=True)
+
+            # 选择排名靠前的 `memory_size` 个样本作为新的 memory_indices
+            selected_indices = sorted_idxs[:memory_size]
+
+            session_info["memory_indices"] = selected_indices
+
+            session_info["sensitivity_scores"] = sensitivity
+            logger.info("为会话 '%s' 计算了 %d 个样本的 Fisher 敏感度得分。",
+                        session_info["session_name"], len(sensitivity))
+        else:
+            logger.warning("Fisher 信息未启用，因此不会计算敏感度。")
 
     def add_session_memory_buffer(self,
                                   session_info: Dict,
@@ -105,6 +173,8 @@ class ExperienceReplayMemory:
         }
         logger.info("为会话 '%s' 创建了重放内存缓冲区，共包含 %d 个样本。",
                     session_name, len(memory_indices))
+        self.add_fisher_info_to_buffer(session_info, memory_size)
+
 
     def do_replay(self, current_step: int, model: torch.nn.Module, device: torch.device, args: dict) -> bool:
         """
@@ -156,7 +226,17 @@ class ExperienceReplayMemory:
         replay_batch_size = int(buffer["replay_ratio"] * current_batch_size)
         if replay_batch_size < 1 and buffer["replay_ratio"] > 0:
             replay_batch_size = 1
-        sampled_indices = random.sample(range(total_samples), replay_batch_size)
+        # —— 若有敏感度得分，则 top-k —— #
+        scores = buffer.get("sensitivity_scores")
+        if scores:
+            # 按得分排序 memory_indices
+            sorted_idxs = sorted(buffer["memory_indices"],
+                                 key=lambda i: scores.get(i, 0.0),
+                                 reverse=True)
+            sampled_indices = sorted_idxs[:replay_batch_size]
+        else:
+            # 回退到随机采样
+            sampled_indices = random.sample(range(total_samples), replay_batch_size)
         logger.info("会话 '%s' 重放批次采样索引: %s", session_name, sampled_indices)
         batch = batch_collate_fn([dataset[i] for i in sampled_indices])
         return batch
@@ -253,7 +333,7 @@ class ExperienceReplayMemory:
                 input_ids, attention_mask, token_type_ids, image_tensor,
                 return_sequence=False
             )
-            logits = model.head(fused_feat)  # => (batch_size, num_labels)
+            logits = model.set_active_head(fused_feat)  # => (batch_size, num_labels)
 
             loss = nn.functional.cross_entropy(logits, labels)  # => (batch_size)
 

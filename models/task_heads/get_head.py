@@ -4,7 +4,11 @@ from models.task_heads.mner_head import MNERHead
 from models.task_heads.mnre_head import MNREHead
 from models.task_heads.masc_head import MASCHead
 from models.task_heads.mate_head import MATEHead
-def get_head(task, base_model, args):
+from models.task_heads.absa_head import ABSAHead
+from models.task_heads.ner_head import NERHead
+from models.task_heads.asc_head import ASCHead
+from models.task_heads.ate_head import ATEHead
+def get_head(task, base_model, args, label_emb=None):
     if isinstance(args, dict):
         num_labels = args.get("num_labels")
         dropout_prob = args.get("dropout_prob")
@@ -31,13 +35,16 @@ def get_head(task, base_model, args):
         return MNERHead(
             input_dim=base_model.fusion_output_dim,
             num_labels=num_labels,
-            dropout_prob=dropout_prob
+            dropout_prob=dropout_prob,
+            hidden_dim=hidden_dim
         )
-    elif task == "mnre":
-        return MNREHead(
-            input_dim=base_model.fusion_output_dim,
-            num_labels=num_labels
-        )
+    # elif task == "mnre":
+    #     return MNREHead(
+    #         input_dim=base_model.fusion_output_dim,
+    #         num_labels=num_labels,
+    #         dropout_prob=dropout_prob,  # 传入 dropout 参数
+    #         hidden_dim=hidden_dim  # 传入 hidden_dim 参数
+    #     )
     elif task == "mate":
         return MATEHead(
             input_dim=base_model.fusion_output_dim,
@@ -48,7 +55,37 @@ def get_head(task, base_model, args):
     elif task == "masc":
         return MASCHead(
             input_dim=base_model.fusion_output_dim,
-            num_labels=num_labels
+            num_labels=num_labels,
+            dropout_prob=dropout_prob,  # 传入 dropout 参数
+            hidden_dim=hidden_dim  # 传入 hidden_dim 参数
+        )
+    elif task == "absa":
+        return ABSAHead(
+            input_dim=base_model.fusion_output_dim,
+            num_labels=num_labels,
+            dropout_prob=dropout_prob,  # 传入 dropout 参数
+            hidden_dim=hidden_dim  # 传入 hidden_dim 参数
+        )
+    elif task == "ate":
+        return ATEHead(
+            input_dim=base_model.fusion_output_dim,
+            num_labels=num_labels,
+            dropout_prob=dropout_prob,  # 传入 dropout 参数
+            hidden_dim=hidden_dim  # 传入 hidden_dim 参数
+        )
+    elif task == "asc":
+        return ASCHead(
+            input_dim=base_model.fusion_output_dim,
+            num_labels=num_labels,
+            dropout_prob=dropout_prob,  # 传入 dropout 参数
+            hidden_dim=hidden_dim  # 传入 hidden_dim 参数
+        )
+    elif task == "ner":
+        return NERHead(
+            input_dim=base_model.fusion_output_dim,
+            num_labels=num_labels,
+            dropout_prob=dropout_prob,  # 传入 dropout 参数
+            hidden_dim=hidden_dim  # 传入 hidden_dim 参数
         )
     else:
         raise ValueError(f"Unsupported task: {task}")

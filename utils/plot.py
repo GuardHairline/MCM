@@ -103,7 +103,7 @@ def main():
     os.makedirs("checkpoints", exist_ok=True)
 
     # 修改下面路径为你实际的 train_info.json 文件路径
-    json_file = "checkpoints/train_info_twitterMix_replay_text.json"
+    json_file = "checkpoints/final2/train_info_twitter2015_si_text.json"
     base_name = os.path.splitext(os.path.basename(json_file))[0]
     with open(json_file, "r", encoding="utf-8") as f:
         train_info = json.load(f)

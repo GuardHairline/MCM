@@ -16,6 +16,8 @@ class MATEDataset(Dataset):
       2) aspect_term
       3) dummy_label(如 -1, 0, 1)，这里忽略
       4) image_name
+
+    标签数量：O=0, B=1, I=2
     """
 
     def __init__(self,

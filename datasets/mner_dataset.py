@@ -10,6 +10,7 @@ class MNERDataset(Dataset):
     """
     MNER: Multimodal NER, 第三行为实体类型(-1..2), 做序列标注(B-type/I-type/O).
     若每条样本只有一个实体, 我们就对这个实体做B-type/I-type, 其余token为O.
+    标签：O=0, B-PER=1, I-PER=2, B-ORG=3, I-ORG=4, B-LOC=5, I-LOC=6, B-MISC=7, I-MISC=8
     """
 
     def __init__(self,

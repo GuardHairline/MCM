@@ -9,7 +9,7 @@ class BaseMultimodalModel(nn.Module):
     def __init__(self, text_model_name="microsoft/deberta-v3-base",
                  image_model_name="google/vit-base-patch16-224-in21k",
                  hidden_dim=768,
-                 multimodal_fusion="multi_head_attention",
+                 multimodal_fusion="concat",
                  num_heads=8,
                  mode="multimodal",
                  dropout_prob=0.1,
@@ -53,14 +53,14 @@ class BaseMultimodalModel(nn.Module):
                                              batch_first=False)
             # batch_first=False => 输入形状 [seq_len, batch_size, embed_dim]
         elif self.fusion_strategy == "concat":
-            self.fusion_output_dim = self.text_hidden_size * 2
+            self.fusion_output_dim = self.text_hidden_size
         elif self.fusion_strategy == "add":
             self.fusion_output_dim = self.text_hidden_size
         else:
             self.fusion_output_dim = self.text_hidden_size  # fallback
 
         self.dropout = nn.Dropout(dropout_prob)
-        self.fc = nn.Linear(self.fusion_output_dim, self.text_hidden_size)  # Final linear layer for output
+        self.fc_concat = nn.Linear(self.text_hidden_size * 2, self.text_hidden_size)  # Full connection for concatenated features
         self.image_weight = image_weight  # 设置图像模态的权重
     def get_image_features(self, image_tensor):
         # ViT特征提取（使用CLS token）
@@ -135,10 +135,12 @@ class BaseMultimodalModel(nn.Module):
                 # repeat 在 seq_len 维度上扩展
                 expanded_img = img_feat.unsqueeze(1).repeat(1, text_sequence.size(1), 1)
                 fused_seq = torch.cat([text_sequence, expanded_img], dim=-1)  # (b, seq_len, 2*hidden_size)
+                fused_seq = self.fc_concat(fused_seq)  # (b, seq_len, hidden_size)
                 return fused_seq
             else:
                 # 只返回 CLS
                 fused_cls = torch.cat([text_cls, img_feat], dim=-1)  # (b, hidden_size*2)
+                fused_cls = self.fc_concat(fused_cls)  # (b, hidden_size)
                 return fused_cls
 
         elif self.fusion_strategy == "add":

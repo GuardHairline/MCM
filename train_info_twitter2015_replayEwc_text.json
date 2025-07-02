@@ -1,0 +1,142 @@
+{
+  "tasks": [
+    "masc"
+  ],
+  "acc_matrix": [
+    [
+      76.56702025072323
+    ]
+  ],
+  "sessions": [
+    {
+      "session_name": "masc_1",
+      "task_name": "masc",
+      "start_time": "2025-04-11 09:12:14",
+      "epochs": 5,
+      "details": {
+        "epoch_losses": [
+          0.8123774577924354,
+          0.6131019399281422,
+          0.41273153281241803,
+          0.3720624285689251,
+          0.3483100399169041
+        ],
+        "dev_metrics_history": [
+          {
+            "acc": 70.32085561497327,
+            "micro_prec": 70.32085561497327,
+            "micro_recall": 70.32085561497327,
+            "micro_f1": 70.32085561497327,
+            "label_counter": {
+              "1": 670,
+              "2": 303,
+              "0": 149
+            }
+          },
+          {
+            "acc": 71.21212121212122,
+            "micro_prec": 71.21212121212122,
+            "micro_recall": 71.21212121212122,
+            "micro_f1": 71.21212121212122,
+            "label_counter": {
+              "1": 670,
+              "2": 303,
+              "0": 149
+            }
+          },
+          {
+            "acc": 74.24242424242425,
+            "micro_prec": 74.24242424242425,
+            "micro_recall": 74.24242424242425,
+            "micro_f1": 74.24242424242425,
+            "label_counter": {
+              "1": 670,
+              "2": 303,
+              "0": 149
+            }
+          },
+          {
+            "acc": 74.50980392156863,
+            "micro_prec": 74.50980392156863,
+            "micro_recall": 74.50980392156863,
+            "micro_f1": 74.50980392156863,
+            "label_counter": {
+              "1": 670,
+              "2": 303,
+              "0": 149
+            }
+          },
+          {
+            "acc": 73.79679144385027,
+            "micro_prec": 73.79679144385027,
+            "micro_recall": 73.79679144385027,
+            "micro_f1": 73.79679144385027,
+            "label_counter": {
+              "1": 670,
+              "2": 303,
+              "0": 149
+            }
+          }
+        ],
+        "final_dev_metrics": {
+          "acc": 73.79679144385027,
+          "micro_prec": 73.79679144385027,
+          "micro_recall": 73.79679144385027,
+          "micro_f1": 73.79679144385027,
+          "label_counter": {
+            "1": 670,
+            "2": 303,
+            "0": 149
+          }
+        },
+        "final_test_metrics": {
+          "acc": 76.56702025072323,
+          "micro_prec": 76.56702025072323,
+          "micro_recall": 76.56702025072323,
+          "micro_f1": 76.56702025072323,
+          "label_counter": {
+            "1": 607,
+            "2": 317,
+            "0": 113
+          }
+        }
+      },
+      "final_metrics": {},
+      "args": {
+        "task_name": "masc",
+        "session_name": "masc_1",
+        "train_info_json": "checkpoints/train_info_twitter2015_replayEwc_text.json",
+        "pretrained_model_path": "",
+        "output_model_path": "/root/autodl-tmp/checkpoints/1.pt",
+        "train_text_file": "data/MASC/twitter2015/train.txt",
+        "test_text_file": "data/MASC/twitter2015/test.txt",
+        "dev_text_file": "data/MASC/twitter2015/dev.txt",
+        "image_dir": "data/img",
+        "text_model_name": "microsoft/deberta-v3-base",
+        "image_model_name": "google/vit-base-patch16-224-in21k",
+        "fusion_strategy": "multi_head_attention",
+        "num_heads": 8,
+        "batch_size": 8,
+        "lr": 1e-05,
+        "epochs": 5,
+        "num_labels": 3,
+        "hidden_dim": 768,
+        "step_size": 2,
+        "gamma": 0.1,
+        "mode": "text_only",
+        "weight_decay": 1e-05,
+        "dropout_prob": 0.1,
+        "patience": 5,
+        "ewc": 1,
+        "ewc_dir": "/root/autodl-tmp/ewc_params",
+        "ewc_lambda": 100,
+        "parallel": 0,
+        "replay": 1,
+        "memory_percentage": 0.05,
+        "replay_frequency": 5,
+        "memory_sampling_strategy": "random"
+      },
+      "fisher_file": "/root/autodl-tmp/ewc_params/masc_1_fisher.pt"
+    }
+  ]
+}

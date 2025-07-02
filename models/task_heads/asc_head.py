@@ -1,8 +1,8 @@
-# models/task_heads/masc_head.py
+# models/task_heads/asc_head.py
 import torch
 import torch.nn as nn
 
-class MASCHead(nn.Module):
+class ASCHead(nn.Module):
     def __init__(self, input_dim, num_labels, dropout_prob=0.1, hidden_dim=None):
         """
         :param input_dim: 输入特征维度（来自多模态融合后的输出维度）
