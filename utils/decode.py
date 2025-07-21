@@ -6,6 +6,14 @@ def decode_mate(label_ids):
     返回: set of (start, end), 表示抽取到的方面词位置区间.
     label_ids: List[int], 已过滤掉 -100（或在外部先过滤）
     """
+    # 确保 label_ids 是扁平化的整数列表
+    if isinstance(label_ids, list) and len(label_ids) > 0 and isinstance(label_ids[0], list):
+        # 如果是嵌套列表，展平它
+        label_ids = [item for sublist in label_ids for item in sublist]
+    
+    # 确保所有元素都是整数
+    label_ids = [int(label) if isinstance(label, (int, float)) else label for label in label_ids]
+    
     aspects = set()
     start = None
     for i, label in enumerate(label_ids):
@@ -42,6 +50,14 @@ def decode_mner(label_ids):
     返回: set of (start, end, t)
       其中 t 是实体类型编号 (0..3)
     """
+    # 确保 label_ids 是扁平化的整数列表
+    if isinstance(label_ids, list) and len(label_ids) > 0 and isinstance(label_ids[0], list):
+        # 如果是嵌套列表，展平它
+        label_ids = [item for sublist in label_ids for item in sublist]
+    
+    # 确保所有元素都是整数
+    label_ids = [int(lab) if isinstance(lab, (int, float)) else lab for lab in label_ids]
+    
     chunks = set()
     start = None
     current_type = None
@@ -90,6 +106,14 @@ def decode_mabsa(label_ids):
     返回: set of (start, end, sentiment)
       sentiment in {-1,0,1} 分别表示neg/neu/pos
     """
+    # 确保 label_ids 是扁平化的整数列表
+    if isinstance(label_ids, list) and len(label_ids) > 0 and isinstance(label_ids[0], list):
+        # 如果是嵌套列表，展平它
+        label_ids = [item for sublist in label_ids for item in sublist]
+    
+    # 确保所有元素都是整数
+    label_ids = [int(lab) if isinstance(lab, (int, float)) else lab for lab in label_ids]
+    
     aspects = set()
     start = None
     current_sent = None

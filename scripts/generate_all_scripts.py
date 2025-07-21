@@ -18,15 +18,15 @@ def generate_common_scripts():
         "none", "ewc", "replay", "lwf", "si", "mas", "mymethod",
         "moe", "clap4clip", "labelembedding", "moe_labelembedding", "clap4clip_labelembedding"
     ]
-    modes = ["text", "multi", "text2multi"]
+    modes = ["text_only", "multimodal", "text2multi"]
     # 本地配置
     local_datasets = ["200"]
-    local_epochs = 5
+    local_epochs = 1  # 本地运行设置为1个epoch用于测试
     local_lr = 5e-5
     # 服务器配置
     server_datasets = ["twitter2015", "twitter2017", "mix"]
     server_epochs = 20
-    server_lr = 2e-5
+    server_lr = 5e-5
     configs = []
     def parse_strategy_flags(strategy):
         return {

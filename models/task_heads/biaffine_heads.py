@@ -1,3 +1,5 @@
+# models/task_heads/biaffine_heads.py
+
 import torch
 import torch.nn as nn
 from continual.label_embedding import GlobalLabelEmbedding
@@ -24,7 +26,9 @@ class BiaffineSpanHead(nn.Module):
         if use_triaffine:
             assert label_emb is not None
             self.label_emb = label_emb  # 标签嵌入
-            self.q = nn.Parameter(torch.zeros(label_emb.embedding.embedding_dim))  # 标签嵌入的投影
+            # 创建一个从 hidden_dim 到 label_emb_dim 的投影矩阵
+            self.q_proj = nn.Linear(hidden_dim, label_emb.emb_dim)  # 投影矩阵
+            self.q = nn.Parameter(torch.zeros(label_emb.emb_dim))  # 标签嵌入的投影向量
 
     def forward(self, seq_feats):  # 输入是 (b, L, d)，表示序列特征
         Hs = self.start_proj(seq_feats)  # (b, L, h)
@@ -37,8 +41,19 @@ class BiaffineSpanHead(nn.Module):
         biaff = biaff + self.W(concat)  # (b, L, L, C)
 
         if self.use_triaffine:  # 如果使用三仿射
-            z = self.label_emb.embedding.weight  # (C, d)，标签的嵌入向量
-            tri = torch.einsum('bsh,zh->bsz', Hs, self.q)[:, :, None, :]  # 计算标签嵌入的投影
-            biaff = biaff + tri + z @ self.q  # 三仿射操作，得到最终得分 (b, L, L, C)
+            # 获取当前任务的所有标签嵌入
+            task_label_embeddings = self.label_emb.get_all_label_embeddings(self.task_name)  # (task_num_labels, emb_dim)
+            # 确保标签嵌入数量与 num_labels 一致
+            if task_label_embeddings.size(0) != self.num_labels:
+                print(f"Warning: task_label_embeddings size ({task_label_embeddings.size(0)}) != num_labels ({self.num_labels})")
+                # 如果数量不匹配，我们只使用前 num_labels 个嵌入
+                task_label_embeddings = task_label_embeddings[:self.num_labels]
+            
+            # 将 Hs 投影到标签嵌入空间，然后与 q 计算点积
+            Hs_proj = self.q_proj(Hs)  # (b, L, label_emb_dim)
+            tri = torch.einsum('bsh,h->bs', Hs_proj, self.q)[:, :, None, None]  # (b, L, 1, 1)
+            # 计算标签嵌入与 q 的点积
+            label_scores = task_label_embeddings @ self.q  # (num_labels, 1)
+            biaff = biaff + tri + label_scores.unsqueeze(0).unsqueeze(0)  # 广播到 (b, L, L, num_labels)
 
         return biaff  # 每个跨度的 C 维得分

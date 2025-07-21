@@ -24,13 +24,22 @@ class BaseMultimodalModel(nn.Module):
         """
         super().__init__()
 
+        # 设置模型路径
         if text_model_name == "microsoft/deberta-v3-base":
             model_path = "downloaded_model/deberta-v3-base"
+        elif text_model_name == "bert-base-uncased":
+            model_path = "bert-base-uncased"
+        else:
+            model_path = text_model_name
 
         if image_model_name == "google/vit-base-patch16-224-in21k":
             image_model_path = "downloaded_model/vit-base-patch16-224-in21k"
+        elif image_model_name == "resnet18":
+            image_model_path = "resnet18"
+        else:
+            image_model_path = image_model_name
 
-        # 文本编码器 (DeBERTa)
+        # 文本编码器
         self.text_encoder = AutoModel.from_pretrained(model_path)
         self.text_hidden_size = self.text_encoder.config.hidden_size
 

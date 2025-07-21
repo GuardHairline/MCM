@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # SERVER - ALL TASKS - TWITTER2017 - CLAP4CLIP - TEXT2MULTI
-# CLAP4CLIP
+# CLAP4CLIP - 先执行text_only，再执行multimodal
 
 # 设置环境变量
 export CUDA_VISIBLE_DEVICES=0
@@ -21,17 +21,24 @@ mkdir -p $GEM_DIR
 
 # 标签嵌入配置
 
-echo "=== Starting multi-task training on TWITTER2017 with CLAP4CLIP ==="
+echo "=== Starting text2multi training on TWITTER2017 with CLAP4CLIP ==="
 echo "Environment: SERVER"
-echo "Tasks: mabsa, masc, mate, mner"
+echo "Tasks: masc, mate, mner, mabsa"
+echo "Mode: First text_only, then multimodal"
 
 # 训练任务列表
-TASKS=('mabsa' 'masc' 'mate' 'mner')
+TASKS=('masc' 'mate' 'mner' 'mabsa')
+i=0
 
-# 逐个训练任务
-for i in "${!TASKS[@]}"; do
+FINAL_MODEL="$CHECKPOINT_DIR/twitter2017_clap4clip_t2m.pt"
+TMP_MODEL="$CHECKPOINT_DIR/1.pt"
+PREV_MODEL=""
+
+# 第一轮：text_only模式
+echo "=== ROUND 1: TEXT_ONLY MODE ==="
+for (( ; i<${#TASKS[@]}; i++ )); do
     TASK_NAME="${TASKS[$i]}"
-    SESSION_NAME="session_${i+1}_$TASK_NAME_twitter2017_clap4clip"
+    SESSION_NAME="session_$((i+1))_${TASK_NAME}_twitter2017_clap4clip_text"
     
     # 根据任务确定实际数据集
     if [ "$TASK_NAME" = "mner" ]; then
@@ -44,14 +51,15 @@ for i in "${!TASKS[@]}"; do
         DATA_DIR="./data"
     fi
     
-    if [ "server" = "server" ]; then
-        MODEL_PATH="$CHECKPOINT_DIR/1.pt"
-    else
-        MODEL_PATH="$CHECKPOINT_DIR/$TASK_NAME_twitter2017_clap4clip.pt"
+    MODEL_PATH="$TMP_MODEL"
+    
+    PRETRAINED_OPT=""
+    if [ -n "$PREV_MODEL" ]; then
+        PRETRAINED_OPT="--pretrained_model_path $PREV_MODEL"
     fi
     
-    TRAIN_INFO_PATH="$CHECKPOINT_DIR/train_info_twitter2017_clap4clip.json"
-    LOG_FILE="$LOG_DIR/$TASK_NAME_twitter2017_clap4clip.log"
+    TRAIN_INFO_PATH="$CHECKPOINT_DIR/train_info_twitter2017_clap4clip_t2m.json"
+    LOG_FILE="$LOG_DIR/$TASK_NAME_twitter2017_clap4clip_text.log"
     
     # 获取数据集文件路径
     if [ "$TASK_NAME" = "mner" ]; then
@@ -93,7 +101,7 @@ for i in "${!TASKS[@]}"; do
             ;;
     esac
     
-    echo "=== Training task ${i+1}/4: $TASK_NAME ==="
+    echo "=== Training task $((i+1))/8: $TASK_NAME (TEXT_ONLY) ==="
     echo "Task: $TASK_NAME, Dataset: twitter2017 (actual: $ACTUAL_DATASET)"
     
     # 执行训练
@@ -111,17 +119,131 @@ for i in "${!TASKS[@]}"; do
         --dev_text_file $DEV_FILE \
         --test_text_file $TEST_FILE \
         --num_labels $NUM_LABELS \
+        --mode text_only \
+        $PRETRAINED_OPT \
         --clap4clip 1 \
         --clap4clip \
         --epochs 20 \
         --batch_size 16 \
-        --lr 2e-05 \
+        --lr 5e-05 \
         --weight_decay 1e-5 \
         --num_workers 4
     
-    echo "=== Task $TASK_NAME completed ==="
+    echo "=== Task $TASK_NAME (TEXT_ONLY) completed ==="
+    # 保存本轮输出，供下一轮使用
+    PREV_MODEL=$TMP_MODEL
+done
+
+echo "=== TEXT_ONLY ROUND COMPLETED ==="
+PREV_MODEL_TEXT=$PREV_MODEL   # 记住 text 阶段最后一个模型
+
+# 第二轮：multimodal模式
+echo "=== ROUND 2: MULTIMODAL MODE ==="
+i=0
+PREV_MODEL=$PREV_MODEL_TEXT
+for (( ; i<${#TASKS[@]}; i++ )); do
+    TASK_NAME="${TASKS[$i]}"
+    SESSION_NAME="session_$((i+5))_${TASK_NAME}_twitter2017_clap4clip_multi"
+    
+    # 根据任务确定实际数据集
+    if [ "$TASK_NAME" = "mner" ]; then
+        ACTUAL_DATASET="twitter2017_ner"
+        DATASET_NAME="twitter2017"
+        DATA_DIR="./data"
+    else
+        ACTUAL_DATASET="twitter2017"
+        DATASET_NAME="twitter2017"
+        DATA_DIR="./data"
+    fi
+    
+    if [ $i -eq $(( ${#TASKS[@]} - 1 )) ]; then
+        MODEL_PATH="$FINAL_MODEL"
+    else
+        MODEL_PATH="$TMP_MODEL"
+    fi
+    
+    # 设置预训练模型路径：
+    if [ -n "$PREV_MODEL" ]; then
+        PRETRAINED_OPT="--pretrained_model_path $PREV_MODEL"
+    fi
+    
+    TRAIN_INFO_PATH="$CHECKPOINT_DIR/train_info_twitter2017_clap4clip_t2m.json"
+    LOG_FILE="$LOG_DIR/$TASK_NAME_twitter2017_clap4clip_multi.log"
+    
+    # 获取数据集文件路径
+    if [ "$TASK_NAME" = "mner" ]; then
+        TRAIN_FILE="data/MNER/twitter2017/train.txt"
+        DEV_FILE="data/MNER/twitter2017/dev.txt"
+        TEST_FILE="data/MNER/twitter2017/test.txt"
+        if [ "twitter2017" = "200" ]; then
+            TRAIN_FILE="data/MNER/twitter2015/train__.txt"
+            DEV_FILE="data/MNER/twitter2015/dev__.txt"
+            TEST_FILE="data/MNER/twitter2015/test__.txt"
+        fi
+    else
+        TRAIN_FILE="data/MASC/twitter2017/train.txt"
+        DEV_FILE="data/MASC/twitter2017/dev.txt"
+        TEST_FILE="data/MASC/twitter2017/test.txt"
+        if [ "twitter2017" = "200" ]; then
+            TRAIN_FILE="data/MASC/twitter2015/train__.txt"
+            DEV_FILE="data/MASC/twitter2015/dev__.txt"
+            TEST_FILE="data/MASC/twitter2015/test__.txt"
+        fi
+    fi
+    
+    # 获取类别数
+    case $TASK_NAME in
+        mabsa)
+            NUM_LABELS=7
+            ;;
+        masc)
+            NUM_LABELS=3
+            ;;
+        mate)
+            NUM_LABELS=3
+            ;;
+        mner)
+            NUM_LABELS=9
+            ;;
+        *)
+            NUM_LABELS=3
+            ;;
+    esac
+    
+    echo "=== Training task $((i+5))/8: $TASK_NAME (MULTIMODAL) ==="
+    echo "Task: $TASK_NAME, Dataset: twitter2017 (actual: $ACTUAL_DATASET)"
+    
+    # 执行训练
+    python -m scripts.train_main \
+        --task_name $TASK_NAME \
+        --dataset_name $DATASET_NAME \
+        --data_dir $DATA_DIR \
+        --session_name $SESSION_NAME \
+        $PRETRAINED_OPT \
+        --output_model_path $MODEL_PATH \
+        --train_info_json $TRAIN_INFO_PATH \
+        --ewc_dir $EWC_DIR \
+        --gem_mem_dir $GEM_DIR \
+        --log_file $LOG_FILE \
+        --train_text_file $TRAIN_FILE \
+        --dev_text_file $DEV_FILE \
+        --test_text_file $TEST_FILE \
+        --num_labels $NUM_LABELS \
+        --mode multimodal \
+        --clap4clip 1 \
+        --clap4clip \
+        --epochs 20 \
+        --batch_size 16 \
+        --lr 5e-05 \
+        --weight_decay 1e-5 \
+        --num_workers 4
+    
+    echo "=== Task $TASK_NAME (MULTIMODAL) completed ==="
+    PREV_MODEL=$MODEL_PATH
 done
 
 echo "=== All tasks completed ==="
 echo "Final model saved to: $MODEL_PATH"
 echo "Training info saved to: $TRAIN_INFO_PATH"
+
+shutdown -h now

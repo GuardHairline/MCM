@@ -42,6 +42,8 @@ def setup_logger(log_level=logging.INFO, args=None):
             strategy += "-ddas"
     if args.mymethod:
         strategy = "mymethod"
+    if args.use_label_embedding:
+        strategy += "_label_emb"
 
     # 新增：根据train_text_file添加数据集标识
     dataset_id = ""

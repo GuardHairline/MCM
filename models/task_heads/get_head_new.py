@@ -1,5 +1,6 @@
 from models.task_heads.biaffine_heads import BiaffineSpanHead
 from models.task_heads.sent_label_attn import LabelAttentionSentHead
+from models.task_heads.token_label_heads import TokenLabelHead
 from continual.label_embedding import GlobalLabelEmbedding
 from continual.label_embedding_manager import LabelEmbeddingManager
 
@@ -27,11 +28,10 @@ def get_head(task, base_model, args, label_emb: GlobalLabelEmbedding = None):
         num_labels = task_num_labels.get(task, 3)
     
     if task in ["mate", "mner", "mabsa"]:           # token-level
-        return BiaffineSpanHead(
+        return TokenLabelHead(
             input_dim=base_model.fusion_output_dim,
             hidden_dim=getattr(args, 'span_hidden', 256),
             num_labels=num_labels,
-            use_triaffine=getattr(args, 'triaffine', False),
             label_emb=label_emb,
             task_name=task
         )

@@ -21,6 +21,10 @@ class MABSADataset(Dataset):
         super().__init__()
         if tokenizer_name == "microsoft/deberta-v3-base":
             model_path = "downloaded_model/deberta-v3-base"
+        elif "clip" in tokenizer_name.lower():
+            model_path = tokenizer_name  # 直接使用CLIP模型名称
+        else:
+            model_path = tokenizer_name  # 默认使用传入的模型名称
         self.text_file = text_file
         self.image_dir = image_dir
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)

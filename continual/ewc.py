@@ -52,6 +52,11 @@ class MultiTaskEWC:
             logger.info("Loading Fisher and optpar for previous tasks...")
             self.task_count = len(train_info["sessions"])
             for session in train_info["sessions"]:
+                # 检查session是否有fisher_file键
+                if "fisher_file" not in session:
+                    logger.warning(f"Session {session.get('session_name', 'unknown')} has no fisher_file, skipping.")
+                    continue
+                    
                 fisher_file_path = session["fisher_file"]
                 if os.path.exists(fisher_file_path):
                     logger.info(f"Loading Fisher and optpar from: {fisher_file_path}")

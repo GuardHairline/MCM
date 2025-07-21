@@ -247,7 +247,7 @@ class ConfigTemplate:
         # 任务配置
         self.tasks = {
             "AllTask": {
-                "tasks": ["mabsa", "masc", "mate", "mner"],
+                "tasks": ["masc", "mate", "mner", "mabsa"],
                 "description": "多任务训练"
             },
             "SingleTask": {
@@ -326,8 +326,8 @@ DATASET_NAME="{dataset_config['dataset_name']}"
 DATA_DIR="{dataset_config['data_dir']}"
 SESSION_NAME="session_{task}_{dataset}_{strategy}"
 MODEL_PATH="$CHECKPOINT_DIR/{model_name}"
-TRAIN_INFO_PATH="$CHECKPOINT_DIR/train_info_{task}_{dataset}_{strategy}.json"
-LOG_FILE="$LOG_DIR/{task}_{dataset}_{strategy}.log"
+TRAIN_INFO_PATH="$CHECKPOINT_DIR/train_info_{task}_{dataset}_{strategy}_{mode}.json"
+LOG_FILE="$LOG_DIR/{task}_{dataset}_{strategy}_{mode}.log"
 
 echo "=== Starting {task.upper()} training on {dataset.upper()} with {strategy.upper()} ==="
 echo "Environment: {env.upper()}"
@@ -351,6 +351,7 @@ python -m scripts.train_main \\
     --dev_text_file {files['dev']} \\
     --test_text_file {files['test']} \\
     --num_labels {num_labels} \\
+    --mode {mode} \\
 """
         
         # 添加策略参数
@@ -376,10 +377,20 @@ python -m scripts.train_main \\
             script_content += f"    --moe_top_k 2 \\\n"
         
         # 添加其他参数
-        script_content += f"""    --epochs {epochs if epochs is not None else 20} \\
-    --batch_size 16 \\
-    --lr {lr if lr is not None else 2e-5} \\
-    --weight_decay 1e-5 \\
+        # 本地环境默认使用1个epoch用于测试，服务器环境使用20个epoch
+        default_epochs = 1 if env == "local" else 20
+        default_batch_size = 2 if env == "local" else 16
+        default_step_size = 10
+        default_gamma = 0.5
+        default_weight_decay = 1e-5
+        default_dropout_prob = 0.1
+        script_content += f"""    --epochs {epochs if epochs is not None else default_epochs} \\
+    --batch_size {default_batch_size} \\
+    --lr {lr if lr is not None else 5e-5} \\
+    --weight_decay {default_weight_decay} \\
+    --step_size {default_step_size} \\
+    --gamma {default_gamma} \\
+    --dropout_prob {default_dropout_prob} \\
     --num_workers 4
 
 echo "=== Training completed ==="
@@ -393,6 +404,9 @@ echo "Training info saved to: $TRAIN_INFO_PATH"
                 "conda activate pytorch\n"
             ) + script_content
         
+        # 末尾追加关机命令（仅server环境）
+        if env == "server":
+            script_content += "\nshutdown -h now\n"
         return script_content
     
     def generate_multi_task_script(self, env: str, dataset: str, strategy: str, 
@@ -401,6 +415,10 @@ echo "Training info saved to: $TRAIN_INFO_PATH"
         env_config = self.environments[env]
         strategy_config = self.strategies[strategy]
         tasks = self.tasks["AllTask"]["tasks"]
+        
+        # 处理text2multi模式：需要生成两轮训练
+        if mode == "text2multi":
+            return self._generate_text2multi_script(env, dataset, strategy, use_label_embedding, use_clap4clip, use_moe_adapters, epochs, lr)
         
         script_content = f"""#!/bin/bash
 
@@ -436,11 +454,16 @@ echo "Tasks: {', '.join(tasks)}"
 
 # 训练任务列表
 TASKS=({ ' '.join([f"'{t}'" for t in tasks]) })
+i=0
+
+PREV_MODEL=""
+FINAL_MODEL="$CHECKPOINT_DIR/{dataset}_{strategy}_{mode}.pt"
+TMP_MODEL="$CHECKPOINT_DIR/1.pt"
 
 # 逐个训练任务
-for i in "${{!TASKS[@]}}"; do
+for (( ; i<${{#TASKS[@]}}; i++ )); do
     TASK_NAME="${{TASKS[$i]}}"
-    SESSION_NAME="session_${{i+1}}_$TASK_NAME_{dataset}_{strategy}"
+    SESSION_NAME="session_$((i+1))_${{TASK_NAME}}_{dataset}_{strategy}"
     
     # 根据任务确定实际数据集
     if [ "$TASK_NAME" = "mner" ]; then
@@ -453,14 +476,20 @@ for i in "${{!TASKS[@]}}"; do
         DATA_DIR="./data"
     fi
     
-    if [ "{env}" = "server" ]; then
-        MODEL_PATH="$CHECKPOINT_DIR/1.pt"
+    if [ $i -eq $(( ${{#TASKS[@]}} - 1 )) ]; then
+        MODEL_PATH="$FINAL_MODEL"
     else
-        MODEL_PATH="$CHECKPOINT_DIR/$TASK_NAME_{dataset}_{strategy}.pt"
+        MODEL_PATH="$TMP_MODEL"
     fi
     
-    TRAIN_INFO_PATH="$CHECKPOINT_DIR/train_info_{dataset}_{strategy}.json"
-    LOG_FILE="$LOG_DIR/$TASK_NAME_{dataset}_{strategy}.log"
+    # ---------- 连续学习：始终衔接上一轮输出 ----------
+    PRETRAINED_OPT=""
+    if [ -n "$PREV_MODEL" ]; then
+        PRETRAINED_OPT="--pretrained_model_path $PREV_MODEL"
+    fi
+    
+    TRAIN_INFO_PATH="$CHECKPOINT_DIR/train_info_{dataset}_{strategy}_{mode}.json"
+    LOG_FILE="$LOG_DIR/$TASK_NAME_{dataset}_{strategy}_{mode}.log"
     
     # 获取数据集文件路径
     if [ "$TASK_NAME" = "mner" ]; then
@@ -502,7 +531,7 @@ for i in "${{!TASKS[@]}}"; do
             ;;
     esac
     
-    echo "=== Training task ${{i+1}}/4: $TASK_NAME ==="
+    echo "=== Training task $((i+1))/4: $TASK_NAME ==="
     echo "Task: $TASK_NAME, Dataset: {dataset} (actual: $ACTUAL_DATASET)"
     
     # 执行训练
@@ -520,6 +549,8 @@ for i in "${{!TASKS[@]}}"; do
         --dev_text_file $DEV_FILE \\
         --test_text_file $TEST_FILE \\
         --num_labels $NUM_LABELS \\
+        --mode {mode} \\
+        $PRETRAINED_OPT \\
 """
         # 添加策略参数
         for param, value in strategy_config['params'].items():
@@ -544,13 +575,343 @@ for i in "${{!TASKS[@]}}"; do
             script_content += f"        --moe_top_k 2 \\\n"
         
         # 添加其他参数
-        script_content += f"""        --epochs {epochs if epochs is not None else 20} \\
-        --batch_size 16 \\
-        --lr {lr if lr is not None else 2e-5} \\
-        --weight_decay 1e-5 \\
+        # 本地环境默认使用1个epoch用于测试，服务器环境使用20个epoch
+        default_epochs = 1 if env == "local" else 20
+        default_batch_size = 2 if env == "local" else 16
+        default_step_size = 10
+        default_gamma = 0.5
+        default_weight_decay = 1e-5
+        default_dropout_prob = 0.1
+        script_content += f"""        --epochs {epochs if epochs is not None else default_epochs} \\
+        --batch_size {default_batch_size} \\
+        --lr {lr if lr is not None else 5e-5} \\
+        --weight_decay {default_weight_decay} \\
+        --step_size {default_step_size} \\
+        --gamma {default_gamma} \\
+        --dropout_prob {default_dropout_prob} \\
         --num_workers 4
     
     echo "=== Task $TASK_NAME completed ==="
+    # 保存本轮输出，供下一轮使用
+    PREV_MODEL=$TMP_MODEL
+done
+
+echo "=== All tasks completed ==="
+echo "Final model saved to: $FINAL_MODEL"
+echo "Training info saved to: $TRAIN_INFO_PATH"
+"""
+        
+        if env == "local":
+            script_content = (
+                "source /d/ProgramData/anaconda3/etc/profile.d/conda.sh\n"
+                "conda activate pytorch\n"
+            ) + script_content
+        
+        # 末尾追加关机命令（仅server环境）
+        if env == "server":
+            script_content += "\nshutdown -h now\n"
+        return script_content
+    
+    def _generate_text2multi_script(self, env: str, dataset: str, strategy: str, 
+                                  use_label_embedding: bool = False, use_clap4clip: bool = False, use_moe_adapters: bool = False, epochs: int = None, lr: float = None) -> str:
+        """生成text2multi模式的脚本：先执行text_only，再执行multimodal"""
+        env_config = self.environments[env]
+        strategy_config = self.strategies[strategy]
+        tasks = self.tasks["AllTask"]["tasks"]
+        mode = "t2m"
+        script_content = f"""#!/bin/bash
+
+# {env.upper()} - ALL TASKS - {dataset.upper()} - {strategy.upper()} - TEXT2MULTI
+# {strategy_config['description']} - 先执行text_only，再执行multimodal
+
+# 设置环境变量
+export CUDA_VISIBLE_DEVICES=0
+
+# 设置路径
+BASE_DIR=\"{env_config['base_dir']}\"
+CHECKPOINT_DIR=\"$BASE_DIR/checkpoints\"
+LOG_DIR=\"$BASE_DIR/log\"
+EWC_DIR=\"$BASE_DIR/ewc_params\"
+GEM_DIR=\"$BASE_DIR/gem_memory\"
+
+# 创建目录
+mkdir -p $CHECKPOINT_DIR
+mkdir -p $LOG_DIR
+mkdir -p $EWC_DIR
+mkdir -p $GEM_DIR
+
+# 标签嵌入配置
+"""
+        if use_label_embedding:
+            script_content += f"""LABEL_EMB_PATH="$CHECKPOINT_DIR/label_embedding_{dataset}.pt"
+"""
+        
+        script_content += f"""
+echo "=== Starting text2multi training on {dataset.upper()} with {strategy.upper()} ==="
+echo "Environment: {env.upper()}"
+echo "Tasks: {', '.join(tasks)}"
+echo "Mode: First text_only, then multimodal"
+
+# 训练任务列表
+TASKS=({ ' '.join([f"'{t}'" for t in tasks]) })
+i=0
+
+FINAL_MODEL="$CHECKPOINT_DIR/{dataset}_{strategy}_t2m.pt"
+TMP_MODEL="$CHECKPOINT_DIR/1.pt"
+PREV_MODEL=""
+
+# 第一轮：text_only模式
+echo "=== ROUND 1: TEXT_ONLY MODE ==="
+for (( ; i<${{#TASKS[@]}}; i++ )); do
+    TASK_NAME="${{TASKS[$i]}}"
+    SESSION_NAME="session_$((i+1))_${{TASK_NAME}}_{dataset}_{strategy}_text"
+    
+    # 根据任务确定实际数据集
+    if [ "$TASK_NAME" = "mner" ]; then
+        ACTUAL_DATASET="{dataset}_ner"
+        DATASET_NAME="{dataset}"
+        DATA_DIR="./data"
+    else
+        ACTUAL_DATASET="{dataset}"
+        DATASET_NAME="{dataset}"
+        DATA_DIR="./data"
+    fi
+    
+    MODEL_PATH="$TMP_MODEL"
+    
+    PRETRAINED_OPT=""
+    if [ -n "$PREV_MODEL" ]; then
+        PRETRAINED_OPT="--pretrained_model_path $PREV_MODEL"
+    fi
+    
+    TRAIN_INFO_PATH="$CHECKPOINT_DIR/train_info_{dataset}_{strategy}_{mode}.json"
+    LOG_FILE="$LOG_DIR/$TASK_NAME_{dataset}_{strategy}_text.log"
+    
+    # 获取数据集文件路径
+    if [ "$TASK_NAME" = "mner" ]; then
+        TRAIN_FILE="data/MNER/{dataset}/train.txt"
+        DEV_FILE="data/MNER/{dataset}/dev.txt"
+        TEST_FILE="data/MNER/{dataset}/test.txt"
+        if [ "{dataset}" = "200" ]; then
+            TRAIN_FILE="data/MNER/twitter2015/train__.txt"
+            DEV_FILE="data/MNER/twitter2015/dev__.txt"
+            TEST_FILE="data/MNER/twitter2015/test__.txt"
+        fi
+    else
+        TRAIN_FILE="data/MASC/{dataset}/train.txt"
+        DEV_FILE="data/MASC/{dataset}/dev.txt"
+        TEST_FILE="data/MASC/{dataset}/test.txt"
+        if [ "{dataset}" = "200" ]; then
+            TRAIN_FILE="data/MASC/twitter2015/train__.txt"
+            DEV_FILE="data/MASC/twitter2015/dev__.txt"
+            TEST_FILE="data/MASC/twitter2015/test__.txt"
+        fi
+    fi
+    
+    # 获取类别数
+    case $TASK_NAME in
+        mabsa)
+            NUM_LABELS=7
+            ;;
+        masc)
+            NUM_LABELS=3
+            ;;
+        mate)
+            NUM_LABELS=3
+            ;;
+        mner)
+            NUM_LABELS=9
+            ;;
+        *)
+            NUM_LABELS=3
+            ;;
+    esac
+    
+    echo "=== Training task $((i+1))/8: $TASK_NAME (TEXT_ONLY) ==="
+    echo "Task: $TASK_NAME, Dataset: {dataset} (actual: $ACTUAL_DATASET)"
+    
+    # 执行训练
+    python -m scripts.train_main \\
+        --task_name $TASK_NAME \\
+        --dataset_name $DATASET_NAME \\
+        --data_dir $DATA_DIR \\
+        --session_name $SESSION_NAME \\
+        --output_model_path $MODEL_PATH \\
+        --train_info_json $TRAIN_INFO_PATH \\
+        --ewc_dir $EWC_DIR \\
+        --gem_mem_dir $GEM_DIR \\
+        --log_file $LOG_FILE \\
+        --train_text_file $TRAIN_FILE \\
+        --dev_text_file $DEV_FILE \\
+        --test_text_file $TEST_FILE \\
+        --num_labels $NUM_LABELS \\
+        --mode text_only \\
+        $PRETRAINED_OPT \\
+"""
+        # 添加策略参数
+        for param, value in strategy_config['params'].items():
+            script_content += f"        --{param} {value} \\\n"
+        
+        # 添加标签嵌入参数
+        if use_label_embedding:
+            script_content += f"""        --use_label_embedding \\
+        --label_emb_dim 128 \\
+        --use_similarity_reg \\
+        --similarity_weight 0.1 \\
+        --label_embedding_path $LABEL_EMB_PATH \\
+"""
+        
+        # 添加 CLAP4CLIP 参数
+        if use_clap4clip:
+            script_content += f"        --clap4clip \\\n"
+        # 添加 MoEAdapters 参数
+        if use_moe_adapters:
+            script_content += f"        --moe_adapters \\\n"
+            script_content += f"        --moe_num_experts 4 \\\n"
+            script_content += f"        --moe_top_k 2 \\\n"
+        
+        # 添加其他参数
+        default_epochs = 1 if env == "local" else 20
+        script_content += f"""        --epochs {epochs if epochs is not None else default_epochs} \\
+        --batch_size 16 \\
+        --lr {lr if lr is not None else 5e-5} \\
+        --weight_decay 1e-5 \\
+        --num_workers 4
+    
+    echo "=== Task $TASK_NAME (TEXT_ONLY) completed ==="
+    # 保存本轮输出，供下一轮使用
+    PREV_MODEL=$TMP_MODEL
+done
+
+echo "=== TEXT_ONLY ROUND COMPLETED ==="
+PREV_MODEL_TEXT=$PREV_MODEL   # 记住 text 阶段最后一个模型
+
+# 第二轮：multimodal模式
+echo "=== ROUND 2: MULTIMODAL MODE ==="
+i=0
+PREV_MODEL=$PREV_MODEL_TEXT
+for (( ; i<${{#TASKS[@]}}; i++ )); do
+    TASK_NAME="${{TASKS[$i]}}"
+    SESSION_NAME="session_$((i+5))_${{TASK_NAME}}_{dataset}_{strategy}_multi"
+    
+    # 根据任务确定实际数据集
+    if [ "$TASK_NAME" = "mner" ]; then
+        ACTUAL_DATASET="{dataset}_ner"
+        DATASET_NAME="{dataset}"
+        DATA_DIR="./data"
+    else
+        ACTUAL_DATASET="{dataset}"
+        DATASET_NAME="{dataset}"
+        DATA_DIR="./data"
+    fi
+    
+    if [ $i -eq $(( ${{#TASKS[@]}} - 1 )) ]; then
+        MODEL_PATH="$FINAL_MODEL"
+    else
+        MODEL_PATH="$TMP_MODEL"
+    fi
+    
+    # 设置预训练模型路径：
+    if [ -n "$PREV_MODEL" ]; then
+        PRETRAINED_OPT="--pretrained_model_path $PREV_MODEL"
+    fi
+    
+    TRAIN_INFO_PATH="$CHECKPOINT_DIR/train_info_{dataset}_{strategy}_{mode}.json"
+    LOG_FILE="$LOG_DIR/$TASK_NAME_{dataset}_{strategy}_multi.log"
+    
+    # 获取数据集文件路径
+    if [ "$TASK_NAME" = "mner" ]; then
+        TRAIN_FILE="data/MNER/{dataset}/train.txt"
+        DEV_FILE="data/MNER/{dataset}/dev.txt"
+        TEST_FILE="data/MNER/{dataset}/test.txt"
+        if [ "{dataset}" = "200" ]; then
+            TRAIN_FILE="data/MNER/twitter2015/train__.txt"
+            DEV_FILE="data/MNER/twitter2015/dev__.txt"
+            TEST_FILE="data/MNER/twitter2015/test__.txt"
+        fi
+    else
+        TRAIN_FILE="data/MASC/{dataset}/train.txt"
+        DEV_FILE="data/MASC/{dataset}/dev.txt"
+        TEST_FILE="data/MASC/{dataset}/test.txt"
+        if [ "{dataset}" = "200" ]; then
+            TRAIN_FILE="data/MASC/twitter2015/train__.txt"
+            DEV_FILE="data/MASC/twitter2015/dev__.txt"
+            TEST_FILE="data/MASC/twitter2015/test__.txt"
+        fi
+    fi
+    
+    # 获取类别数
+    case $TASK_NAME in
+        mabsa)
+            NUM_LABELS=7
+            ;;
+        masc)
+            NUM_LABELS=3
+            ;;
+        mate)
+            NUM_LABELS=3
+            ;;
+        mner)
+            NUM_LABELS=9
+            ;;
+        *)
+            NUM_LABELS=3
+            ;;
+    esac
+    
+    echo "=== Training task $((i+5))/8: $TASK_NAME (MULTIMODAL) ==="
+    echo "Task: $TASK_NAME, Dataset: {dataset} (actual: $ACTUAL_DATASET)"
+    
+    # 执行训练
+    python -m scripts.train_main \\
+        --task_name $TASK_NAME \\
+        --dataset_name $DATASET_NAME \\
+        --data_dir $DATA_DIR \\
+        --session_name $SESSION_NAME \\
+        $PRETRAINED_OPT \\
+        --output_model_path $MODEL_PATH \\
+        --train_info_json $TRAIN_INFO_PATH \\
+        --ewc_dir $EWC_DIR \\
+        --gem_mem_dir $GEM_DIR \\
+        --log_file $LOG_FILE \\
+        --train_text_file $TRAIN_FILE \\
+        --dev_text_file $DEV_FILE \\
+        --test_text_file $TEST_FILE \\
+        --num_labels $NUM_LABELS \\
+        --mode multimodal \\
+"""
+        # 添加策略参数
+        for param, value in strategy_config['params'].items():
+            script_content += f"        --{param} {value} \\\n"
+        
+        # 添加标签嵌入参数
+        if use_label_embedding:
+            script_content += f"""        --use_label_embedding \\
+        --label_emb_dim 128 \\
+        --use_similarity_reg \\
+        --similarity_weight 0.1 \\
+        --label_embedding_path $LABEL_EMB_PATH \\
+"""
+        
+        # 添加 CLAP4CLIP 参数
+        if use_clap4clip:
+            script_content += f"        --clap4clip \\\n"
+        # 添加 MoEAdapters 参数
+        if use_moe_adapters:
+            script_content += f"        --moe_adapters \\\n"
+            script_content += f"        --moe_num_experts 4 \\\n"
+            script_content += f"        --moe_top_k 2 \\\n"
+        
+        # 添加其他参数
+        default_epochs = 1 if env == "local" else 20
+        script_content += f"""        --epochs {epochs if epochs is not None else default_epochs} \\
+        --batch_size 16 \\
+        --lr {lr if lr is not None else 5e-5} \\
+        --weight_decay 1e-5 \\
+        --num_workers 4
+    
+    echo "=== Task $TASK_NAME (MULTIMODAL) completed ==="
+    PREV_MODEL=$MODEL_PATH
 done
 
 echo "=== All tasks completed ==="
@@ -564,6 +925,9 @@ echo "Training info saved to: $TRAIN_INFO_PATH"
                 "conda activate pytorch\n"
             ) + script_content
         
+        # 末尾追加关机命令（仅server环境）
+        if env == "server":
+            script_content += "\nshutdown -h now\n"
         return script_content
     
     def generate_script(self, env: str, task_type: str, dataset: str, strategy: str, 
@@ -623,7 +987,7 @@ def main():
     parser.add_argument("--strategy", type=str, required=True,
                        choices=["none", "ewc", "replay", "lwf", "si", "mas", "gem", "mymethod", "tamcl", "moe"],
                        help="持续学习策略")
-    parser.add_argument("--mode", type=str, default="multi", choices=["text", "multi"],
+    parser.add_argument("--mode", type=str, default="multimodal", choices=["text_only", "multimodal"],
                        help="训练模式")
     parser.add_argument("--use_label_embedding", action="store_true",
                        help="使用标签嵌入")
@@ -653,7 +1017,7 @@ def main():
         output_path = f"scripts/{script_name}"
     
     # 写入文件
-    with open(output_path, 'w', encoding='utf-8') as f:
+    with open(output_path, 'w', encoding='utf-8', newline='\n') as f:
         f.write(script_content)
     
     # 设置执行权限

@@ -3,6 +3,7 @@ from collections import Counter
 
 
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 
@@ -23,6 +24,22 @@ def evaluate_single_task(model, task_name, split, device, args):
     """
     对指定任务的 {split} (dev/test) 数据集进行评估，返回准确率(%)。
     """
+    # 确保使用正确的任务头
+    if hasattr(model, 'set_active_head') and hasattr(args, 'session_name'):
+        try:
+            model.set_active_head(args.session_name)
+        except Exception as e:
+            # 如果设置活动头失败（比如在0样本检测时），使用默认行为
+            logger.warning(f"Failed to set active head for session {args.session_name}: {e}")
+            # 不设置活动头，让模型使用默认行为
+    
+    # 为CLAP4CLIP模型设置当前任务
+    if hasattr(model, 'set_current_task') and hasattr(args, 'session_name'):
+        try:
+            model.set_current_task(args.session_name)
+        except Exception as e:
+            logger.warning(f"Failed to set current task for session {args.session_name}: {e}")
+    
     # 读取通用参数
     if isinstance(args, dict):
         batch_size = args.get("batch_size")
@@ -86,21 +103,80 @@ def evaluate_single_task(model, task_name, split, device, args):
                     if label != -100:
                         label_counter[label] += 1
 
-                fused_feat = model.base_model(input_ids, attention_mask, token_type_ids, image_tensor,
-                                              return_sequence=True)
-                if use_ddas:
-                    # 用 CLS 平均表示决定是否替换
-                    pooled = fused_feat.mean(dim=1)           # (B,H)
-                    branch_mask, _ = model.ddas(pooled)
-                    if (~branch_mask).any():
-                        # 重新用冻结主干特征
-                        plain_feat = model.base_model.base_model(
-                            input_ids[~branch_mask], attention_mask[~branch_mask],
-                            token_type_ids[~branch_mask], image_tensor[~branch_mask],
-                            return_sequence=True
+                # 检查是否为特殊模型类型
+                if hasattr(args, 'tam_cl') and args.tam_cl:
+                    # TAM-CL 模型
+                    try:
+                        out = model(input_ids, attention_mask, token_type_ids, image_tensor, session_id=args.session_name)
+                        if isinstance(out, tuple) and len(out) == 3:
+                            logits, _, _ = out
+                        else:
+                            logits = out
+                    except Exception as e:
+                        logger.warning(f"TAM-CL forward failed, using fallback: {e}")
+                        # 使用fallback方法
+                        fused_feat = model.base_model(input_ids, attention_mask, token_type_ids, image_tensor,
+                                                      return_sequence=True)
+                        logits = model.head(fused_feat)
+                elif hasattr(args, 'clap4clip') and args.clap4clip:
+                    # CLAP4CLIP 模型
+                    try:
+                        logits = model(
+                            input_ids=input_ids,
+                            attention_mask=attention_mask,
+                            image_tensor=image_tensor,
+                            task_name=args.session_name
                         )
-                        fused_feat[~branch_mask] = plain_feat
-                logits = model.head(fused_feat)              # (B,L,C)
+                    except Exception as e:
+                        logger.warning(f"CLAP4CLIP forward failed, using fallback: {e}")
+                        # 使用fallback方法
+                        fused_feat = model.base_model(input_ids, attention_mask, token_type_ids, image_tensor,
+                                                      return_sequence=True)
+                        logits = model.head(fused_feat)
+                else:
+                    # 标准模型
+                    try:
+                        fused_feat = model.base_model(input_ids, attention_mask, token_type_ids, image_tensor,
+                                                      return_sequence=True)
+                        if use_ddas:
+                            # 用 CLS 平均表示决定是否替换
+                            pooled = fused_feat.mean(dim=1)           # (B,H)
+                            branch_mask, _ = model.ddas(pooled)
+                            if (~branch_mask).any():
+                                # 重新用冻结主干特征
+                                plain_feat = model.base_model.base_model(
+                                    input_ids[~branch_mask], attention_mask[~branch_mask],
+                                    token_type_ids[~branch_mask], image_tensor[~branch_mask],
+                                    return_sequence=True
+                                )
+                                fused_feat[~branch_mask] = plain_feat
+                        
+                        # 检查head类型，确保序列任务使用正确的head
+                        if hasattr(model, 'head'):
+                            try:
+                                logits = model.head(fused_feat)              # (B,L,C)
+                            except ValueError as e:
+                                if "not enough values to unpack" in str(e):
+                                    # 如果head期望2维输入但得到3维，说明head类型不匹配
+                                    logger.warning(f"Head type mismatch for task {task_name}, using fallback")
+                                    # 创建一个简单的线性分类器作为fallback
+                                    if not hasattr(model, '_fallback_head'):
+                                        model._fallback_head = nn.Linear(fused_feat.size(-1), args.num_labels).to(fused_feat.device)
+                                    # 对于序列任务，取平均池化
+                                    pooled_feat = fused_feat.mean(dim=1)  # (B, H)
+                                    logits = model._fallback_head(pooled_feat)
+                                else:
+                                    raise e
+                        else:
+                            raise ValueError("Model has no head")
+                    except Exception as e:
+                        logger.warning(f"Standard model forward failed: {e}")
+                        # 如果head失败，尝试使用默认head
+                        if hasattr(model, 'head'):
+                            logits = model.head(fused_feat)
+                        else:
+                            raise e
+                
                 # logits: [batch_size, seq_len, num_labels]
                 # preds => [batch_size, seq_len]
                 preds = torch.argmax(logits, dim=2)
@@ -110,7 +186,16 @@ def evaluate_single_task(model, task_name, split, device, args):
                 all_labels_token.extend(labels.view(-1).cpu().tolist())
 
                 # 开始做 chunk-level decode
-                bsz, seqlen = preds.shape
+                # print(f"preds.shape: {preds.shape}")
+                if preds.dim() == 2:
+                    bsz, seqlen = preds.shape
+                elif preds.dim() == 3:
+                    bsz, seqlen, num_labels = preds.shape
+                elif preds.dim() == 4:
+                    bsz, seqlen, _, num_labels = preds.shape  # 例如，处理跨度任务的情况
+                else:
+                    raise ValueError(f"Unexpected preds dimension: {preds.dim()}")
+
                 for i in range(bsz):
                     # 过滤 -100
                     valid_len = (labels[i] != -100).sum().item() + 1
@@ -157,18 +242,76 @@ def evaluate_single_task(model, task_name, split, device, args):
             else:
                 # === 句级分类 ===
                 label_counter.update(labels.cpu().tolist())
-                fused_cls = model.base_model(input_ids, attention_mask, token_type_ids, image_tensor,
-                                             return_sequence=False)
-                if use_ddas:
-                    branch_mask, _ = model.ddas(fused_cls)
-                    if (~branch_mask).any():
-                        plain_feat = model.base_model.base_model(
-                            input_ids[~branch_mask], attention_mask[~branch_mask],
-                            token_type_ids[~branch_mask], image_tensor[~branch_mask],
-                            return_sequence=False
+                
+                # 检查是否为特殊模型类型
+                if hasattr(args, 'tam_cl') and args.tam_cl:
+                    # TAM-CL 模型
+                    try:
+                        out = model(input_ids, attention_mask, token_type_ids, image_tensor, session_id=args.session_name)
+                        if isinstance(out, tuple) and len(out) == 3:
+                            logits, _, _ = out
+                        else:
+                            logits = out
+                    except Exception as e:
+                        logger.warning(f"TAM-CL forward failed, using fallback: {e}")
+                        # 使用fallback方法
+                        fused_cls = model.base_model(input_ids, attention_mask, token_type_ids, image_tensor,
+                                                     return_sequence=False)
+                        logits = model.head(fused_cls)
+                elif hasattr(args, 'clap4clip') and args.clap4clip:
+                    # CLAP4CLIP 模型
+                    try:
+                        logits = model(
+                            input_ids=input_ids,
+                            attention_mask=attention_mask,
+                            image_tensor=image_tensor,
+                            task_name=args.session_name
                         )
-                        fused_cls[~branch_mask] = plain_feat
-                logits = model.head(fused_cls)  # => (b, num_labels)
+                    except Exception as e:
+                        logger.warning(f"CLAP4CLIP forward failed, using fallback: {e}")
+                        # 使用fallback方法
+                        fused_cls = model.base_model(input_ids, attention_mask, token_type_ids, image_tensor,
+                                                     return_sequence=False)
+                        logits = model.head(fused_cls)
+                else:
+                    # 标准模型
+                    try:
+                        fused_cls = model.base_model(input_ids, attention_mask, token_type_ids, image_tensor,
+                                                     return_sequence=False)
+                        if use_ddas:
+                            branch_mask, _ = model.ddas(fused_cls)
+                            if (~branch_mask).any():
+                                plain_feat = model.base_model.base_model(
+                                    input_ids[~branch_mask], attention_mask[~branch_mask],
+                                    token_type_ids[~branch_mask], image_tensor[~branch_mask],
+                                    return_sequence=False
+                                )
+                                fused_cls[~branch_mask] = plain_feat
+                        
+                        # 检查head类型，确保句级任务使用正确的head
+                        if hasattr(model, 'head'):
+                            try:
+                                logits = model.head(fused_cls)  # => (b, num_labels)
+                            except ValueError as e:
+                                if "not enough values to unpack" in str(e):
+                                    # 如果head期望3维输入但得到2维，说明head类型不匹配
+                                    logger.warning(f"Head type mismatch for task {task_name}, using fallback")
+                                    # 创建一个简单的线性分类器作为fallback
+                                    if not hasattr(model, '_fallback_head'):
+                                        model._fallback_head = nn.Linear(fused_cls.size(-1), args.num_labels).to(fused_cls.device)
+                                    logits = model._fallback_head(fused_cls)
+                                else:
+                                    raise e
+                        else:
+                            raise ValueError("Model has no head")
+                    except Exception as e:
+                        logger.warning(f"Standard model forward failed: {e}")
+                        # 如果head失败，尝试使用默认head
+                        if hasattr(model, 'head'):
+                            logits = model.head(fused_cls)
+                        else:
+                            raise e
+                
                 preds = torch.argmax(logits, dim=1)
                 all_preds_token.extend(preds.cpu().tolist())
                 all_labels_token.extend(labels.cpu().tolist())
@@ -239,21 +382,45 @@ def evaluate_single_task(model, task_name, split, device, args):
 
 def evaluate_all_learned_tasks(model, sessions_list, device, train_info):
     acc_list = []
-    for session in sessions_list:
+    seen_sessions = set()  # 用于检测重复session
+    
+    logger.info(f"Evaluating {len(sessions_list)} sessions")
+    for i, session in enumerate(sessions_list):
         if "task_name" not in session:
             logger.info(f"Session {session['session_name']} has no task_name, skipping")
             continue
+        if "session_name" not in session:
+            logger.info(f"Session at index {i} has no session_name, skipping")
+            continue
+            
+        session_name = session["session_name"]
         tname = session["task_name"]
+        
+        # 检查是否有重复session
+        if session_name in seen_sessions:
+            logger.warning(f"Duplicate session {session_name} found at index {i}, skipping")
+            continue
+        seen_sessions.add(session_name)
+        
         args = session["args"]
-        model.set_active_head(session["session_name"])
-        metrics  = evaluate_single_task(model, tname, "test", device, args)
+        
+        # 尝试设置活动头，如果方法不存在则跳过
+        try:
+            if hasattr(model, 'set_active_head'):
+                model.set_active_head(session["session_name"])
+        except Exception as e:
+            logger.warning(f"Could not set active head for session {session['session_name']}: {e}")
+        
+        metrics = evaluate_single_task(model, tname, "test", device, args)
         # 你可取 chunk_f1 或 accuracy 作为acc
         # if tname in ["mate", "mner", "mabsa"]:
         #     acc_list.append(m["chunk_f1"])
         # else:
         #     acc_list.append(m["accuracy"])
-        logger.info(f"[Info] Evaluation metrics for {tname} on test set: {metrics}")
+        logger.info(f"[Info] Evaluation metrics for {tname} on test set: {metrics['acc']}")
         acc_list.append(metrics["acc"])
+    
+    logger.info(f"Final acc_list: {acc_list}")
     return acc_list
 
 

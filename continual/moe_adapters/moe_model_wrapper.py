@@ -20,6 +20,11 @@ class MoeAdapterWrapper(nn.Module):
                                                   num_experts, top_k)
         self.image_adapters = inject_moe_adapters(base_model.image_encoder, "image",
                                                   num_experts, top_k)
+        
+        # 继承基础模型的属性，确保兼容性
+        self.fusion_output_dim = base_model.fusion_output_dim
+        self.text_hidden_size = base_model.text_hidden_size
+        self.image_hidden_size = base_model.image_hidden_size
 
     # === Lifecycle ===
     def start_new_task(self):

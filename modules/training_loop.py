@@ -20,6 +20,10 @@ def train_epoch(model, train_loader, optimizer, device, args,
                 label_embedding_manager: Optional[LabelEmbeddingManager] = None,
                 ddas_optimizer=None, logger=None):
     """训练一个epoch"""
+    # 确保使用正确的任务头
+    if hasattr(model, 'set_active_head') and hasattr(args, 'session_name'):
+        model.set_active_head(args.session_name)
+    
     model.train()
     total_loss = 0.0
     total_samples = 0
@@ -41,10 +45,25 @@ def train_epoch(model, train_loader, optimizer, device, args,
         # 前向传播
         if args.tam_cl:
             # TamCLModel 返回 (logits, seq, seq_tab)
-            logits, seq, seq_tab = model(
+            out = model(
                 input_ids, attention_mask, token_type_ids, image_tensor,
                 session_id=args.session_name
             )
+            if isinstance(out, tuple) and len(out) == 3:
+                logits, seq, seq_tab = out
+            else:
+                logits = out
+                seq = seq_tab = None
+        elif args.clap4clip:
+            # CLAP4CLIP 模型直接处理
+            logits = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                image_tensor=image_tensor,
+                task_name=args.session_name
+            )
+            loss = F.cross_entropy(logits, labels)
+            label_counter.update(labels.cpu().numpy())
         else:
             is_seq_task = is_sequence_task(args.task_name)
             
@@ -55,20 +74,22 @@ def train_epoch(model, train_loader, optimizer, device, args,
                     return_sequence=True
                 )
                 logits = model.head(fused_feat)
-                
+                # TokenLabelHead 直接输出 (batch_size, seq_len, num_labels)
+                # print('logits.shape:', logits.shape, 'labels.shape:', labels.shape)
+
                 # 类别权重处理
                 class_weights = get_class_weights(args.task_name, device)
                 if class_weights is not None:
                     loss = F.cross_entropy(
-                        logits.view(-1, logits.size(-1)),
-                        labels.view(-1),
+                        logits.reshape(-1, logits.size(-1)),
+                        labels.reshape(-1),
                         weight=class_weights,
                         ignore_index=-100
                     )
                 else:
                     loss = F.cross_entropy(
-                        logits.view(-1, logits.size(-1)),
-                        labels.view(-1),
+                        logits.reshape(-1, logits.size(-1)),
+                        labels.reshape(-1),
                         ignore_index=-100
                     )
                 
@@ -81,6 +102,7 @@ def train_epoch(model, train_loader, optimizer, device, args,
                     return_sequence=False
                 )
                 logits = model.head(fused_feat)
+                # print('logits.shape:', logits.shape, 'labels.shape:', labels.shape)
                 loss = F.cross_entropy(logits, labels)
                 
                 if args.ddas:
@@ -136,10 +158,15 @@ def train_epoch(model, train_loader, optimizer, device, args,
                 "token_type_ids": token_type_ids,
                 "image_tensor": image_tensor
             }
-            _, seq, _ = model(input_ids, attention_mask, token_type_ids, image_tensor, args.session_name)
-            kd_loss = model.compute_distillation(seq, args.session_name, T=args.lwf_T)
-            div_loss = model.diversity_loss(args.session_name)
-            loss = loss + args.lwf_alpha * kd_loss + 0.1 * div_loss
+            out = model(input_ids, attention_mask, token_type_ids, image_tensor, args.session_name)
+            if isinstance(out, tuple) and len(out) == 3:
+                _, seq, _ = out
+            else:
+                seq = None
+            if seq is not None:
+                kd_loss = model.compute_distillation(seq, args.session_name, T=args.lwf_T)
+                div_loss = model.diversity_loss(args.session_name)
+                loss = loss + args.lwf_alpha * kd_loss + 0.1 * div_loss
         
         # MoE 路由平衡损失
         if args.moe_adapters and hasattr(model, 'base_model') and hasattr(model.base_model, 'text_adapters'):
@@ -190,6 +217,14 @@ def train_epoch(model, train_loader, optimizer, device, args,
 
 def validate_epoch(model, val_loader, device, args, logger=None):
     """验证一个epoch"""
+    # 确保使用正确的任务头
+    if hasattr(model, 'set_active_head') and hasattr(args, 'session_name'):
+        model.set_active_head(args.session_name)
+    
+    # CLAP4CLIP模型需要特殊处理
+    if args.clap4clip and hasattr(model, 'set_current_task'):
+        model.set_current_task(args.session_name)
+    
     # 直接用 evaluate_single_task 评估
     metrics = evaluate_single_task(model, args.task_name, "dev", device, args)
     avg_loss = None  # 如果需要平均loss，可在 evaluate_single_task 里返回或单独实现
@@ -208,6 +243,10 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, device, a
     best_metrics = None
     patience = args.patience
     no_improve_count = 0
+    
+    # 新增：收集每个epoch的loss和dev metrics
+    epoch_losses = []
+    dev_metrics_history = []
     
     # 创建DDAS优化器
     ddas_optimizer = None
@@ -235,40 +274,36 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, device, a
         # 验证
         val_loss, metrics = validate_epoch(model, val_loader, device, args, logger)
         
+        # 新增：记录loss和metrics
+        epoch_losses.append(train_loss)
+        dev_metrics_history.append(metrics)
+        
         # 学习率调度
         if scheduler:
             scheduler.step()
-        
-        # # 早停检查
-        # if val_loss < best_val_loss:
-        #     best_val_loss = val_loss
-        #     best_metrics = metrics
-        #     no_improve_count = 0
-        #     if args.output_model_path:
-        #         torch.save(model.state_dict(), args.output_model_path)
-        #         if logger:
-        #             logger.info(f"Saved best model to {args.output_model_path}")
-        # else:
-        #     no_improve_count += 1
-        #     if no_improve_count >= patience:
-        #         if logger:
-        #             logger.info(f"[EarlyStopping] Dev loss no improve for {patience} epochs.")
-        #         break
         
         epoch_time = time.time() - start_time
         
         if val_loss is not None:
             logger.info(f"Epoch {epoch+1}/{args.epochs} - "
-                        f"Train Loss: {train_loss:.4f}, "
-                        f"Val Loss: {val_loss:.4f}, "
-                        f"Time: {epoch_time:.2f}s")
+                       f"Train Loss: {train_loss:.4f}, "
+                       f"Val Loss: {val_loss:.4f}, "
+                       f"Time: {epoch_time:.2f}s")
         else:
             logger.info(f"Epoch {epoch+1}/{args.epochs} - "
                         f"Train Loss: {train_loss:.4f}, "
                         f"Time: {epoch_time:.2f}s "
                         f"Metrics: {metrics}")
-    
-    return best_metrics
+    # 新增：训练结束后评估一次dev/test
+    final_dev_metrics = evaluate_single_task(model, args.task_name, "dev", device, args)
+    final_test_metrics = evaluate_single_task(model, args.task_name, "test", device, args)
+    return {
+        "best_metrics": best_metrics,
+        "epoch_losses": epoch_losses,
+        "dev_metrics_history": dev_metrics_history,
+        "final_dev_metrics": final_dev_metrics,
+        "final_test_metrics": final_test_metrics
+    }
 
 
 def evaluate_all_tasks(model, test_loaders, device, args, logger=None):
@@ -293,14 +328,26 @@ def evaluate_all_tasks(model, test_loaders, device, args, logger=None):
                 image_tensor = batch['image_tensor'].to(device)
                 labels = batch['labels'].to(device)
                 
+                # 检查是否为特殊模型类型
                 if args.tam_cl:
-                    logits, _, _ = model(
+                    out = model(
                         input_ids, attention_mask, token_type_ids, image_tensor,
                         session_id=task_name
                     )
+                    if isinstance(out, tuple) and len(out) == 3:
+                        logits, _, _ = out
+                    else:
+                        logits = out
+                elif args.clap4clip:
+                    logits = model(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        image_tensor=image_tensor,
+                        task_name=task_name
+                    )
                 else:
                     is_seq_task = is_sequence_task(task_name)
-                    
+                
                     if is_seq_task:
                         fused_feat = model.base_model(
                             input_ids, attention_mask, token_type_ids, image_tensor,
@@ -329,7 +376,7 @@ def evaluate_all_tasks(model, test_loaders, device, args, logger=None):
             if logger:
                 logger.info(f"Task {task_name} metrics: {metrics}")
     
-    return all_metrics
+    return all_metrics 
 
 
 def update_continual_learning_components(model, train_loader, device, args, 

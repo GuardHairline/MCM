@@ -1,0 +1,3 @@
+python -m scripts.train_with_zero_shot --config scripts/configs/server_twitter2015_none_label_emb.json
+
+shutdown -h now

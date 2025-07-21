@@ -192,6 +192,10 @@ def create_train_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log_file", type=str, default=None,
                        help="Log file path")
     
+    # ========== 任务配置文件参数（用于0样本检测） ==========
+    parser.add_argument("--task_config_file", type=str, default=None,
+                       help="Task configuration file for zero-shot evaluation")
+    
     return parser
 
 
