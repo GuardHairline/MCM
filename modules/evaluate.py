@@ -10,6 +10,7 @@ from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 from datasets.get_dataset import get_dataset
 from utils.decode import decode_mate, decode_mner, decode_mabsa
 from continual.moe_adapters.ddas_router import DDASRouter
+from common_keys import build_task_key
 import logging
 
 logger = logging.getLogger("evaluate")
@@ -26,8 +27,9 @@ def evaluate_single_task(model, task_name, split, device, args):
     """
     # 确保使用正确的任务头
     if hasattr(model, 'set_active_head') and hasattr(args, 'session_name'):
+        task_key = build_task_key(task_name, args.mode)
         try:
-            model.set_active_head(args.session_name)
+            model.set_active_head(task_key)
         except Exception as e:
             # 如果设置活动头失败（比如在0样本检测时），使用默认行为
             logger.warning(f"Failed to set active head for session {args.session_name}: {e}")
