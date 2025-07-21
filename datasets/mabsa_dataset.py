@@ -119,9 +119,9 @@ class MABSADataset(Dataset):
         1 -> B-positive, I-positive
         """
         if sentiment == -1:
-            return (3, 4)  # B-negative, I-negative
+            return (1, 2)  # B-negative, I-negative
         elif sentiment == 0:
-            return (1, 2)  # B-neutral, I-neutral
+            return (3, 4)  # B-neutral, I-neutral
         elif sentiment == 1:
             return (5, 6)  # B-positive, I-positive
 
