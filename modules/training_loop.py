@@ -29,6 +29,11 @@ def train_epoch(model, train_loader, optimizer, device, args,
     total_samples = 0
     label_counter = Counter()
     ddas_feats = []
+
+    # # [DEBUG] 打印所有参数的requires_grad
+    # print("[DEBUG] Parameter requires_grad status:")
+    # for name, param in model.named_parameters():
+    #     print(f"[DEBUG] {name}: requires_grad={param.requires_grad}")
     
     for batch_idx, batch in enumerate(train_loader):
         # 数据移到设备
@@ -181,6 +186,47 @@ def train_epoch(model, train_loader, optimizer, device, args,
         
         # 反向传播
         loss.backward()
+
+        # # [DEBUG] 打印logits和labels的shape及前几个数值，排查loss计算问题
+        # if 'logits' in locals() and 'labels' in locals():
+        #     try:
+        #         print(f"[DEBUG] logits.shape: {logits.shape}, labels.shape: {labels.shape}")
+        #         print(f"[DEBUG] logits sample: {logits.flatten()[:10].detach().cpu().numpy()}")
+        #         print(f"[DEBUG] labels sample: {labels.flatten()[:10].detach().cpu().numpy()}")
+        #     except Exception as e:
+        #         print(f"[DEBUG] logits/labels print error: {e}")
+        
+        # # [DEBUG] 打印base_model、head、label embedding的梯度norm
+        # if hasattr(model, "base_model"):
+        #     for n, p in model.base_model.named_parameters():
+        #         if p.grad is not None:
+        #             print(f"[DEBUG] base_model.{n} grad norm: {p.grad.norm().item():.6f}")
+        #         break  # 只打印第一个参数
+        # if hasattr(model, "head"):
+        #     for n, p in model.head.named_parameters():
+        #         if p.grad is not None:
+        #             print(f"[DEBUG] head.{n} grad norm: {p.grad.norm().item():.6f}")
+        #         break
+        # # label embedding grad
+        # emb = None
+        # if hasattr(model, "head") and hasattr(model.head, "label_emb"):
+        #     emb = model.head.label_emb
+        # if emb is not None and hasattr(emb, "embedding") and hasattr(emb.embedding, "weight"):
+        #     grad = emb.embedding.weight.grad
+        #     if grad is not None:
+        #         print(f"[DEBUG] label embedding grad norm: {grad.norm().item():.6f}")
+        #         # 如果有freeze，打印新任务label embedding的梯度
+        #         if hasattr(emb, "label2idx") and hasattr(emb, "task_name"):
+        #             task_key = emb.task_name if hasattr(emb, "task_name") else None
+        #             num_labels = getattr(emb, "num_labels", None)
+        #             if task_key and num_labels:
+        #                 try:
+        #                     indices = [emb.label2idx[(task_key, i)] for i in range(num_labels)]
+        #                     print(f"[DEBUG] new task label embedding grad: {grad[indices]}")
+        #                 except Exception as e:
+        #                     print(f"[DEBUG] label embedding grad index error: {e}")
+        #     else:
+        #         print("[DEBUG] label embedding grad is None")
         
         # GEM 梯度投影
         if gem is not None:
@@ -208,10 +254,8 @@ def train_epoch(model, train_loader, optimizer, device, args,
         
         total_loss += loss.item()
         total_samples += input_ids.size(0)
-        
-        # if batch_idx % 100 == 0 and logger:
-        #     logger.info(f"Batch {batch_idx}, Loss: {loss.item():.4f}")
-    
+        print(f"Batch {batch_idx}: loss={loss.item()}")
+    print(f"Epoch total_loss={total_loss}, total_samples={total_samples}")
     return total_loss / total_samples
 
 

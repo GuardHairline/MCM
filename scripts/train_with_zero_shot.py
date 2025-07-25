@@ -29,7 +29,7 @@ def load_task_config(config_file: str) -> Dict[str, Any]:
 
 
 def run_single_task(task_config: Dict[str, Any], global_params: Dict[str, Any], 
-                   task_idx: int, total_tasks: int, pretrained_model_path: str = "") -> str:
+                   task_idx: int, total_tasks: int, pretrained_model_path: str = "", all_tasks: List[Dict[str, Any]] = []) -> str:
     """运行单个任务"""
     
     print(f"Running task {task_idx + 1}/{total_tasks}: {task_config['task_name']} ({task_config['session_name']})")
@@ -121,7 +121,7 @@ def run_single_task(task_config: Dict[str, Any], global_params: Dict[str, Any],
     
     try:
         # 直接调用训练函数
-        best_metrics = train(args, logger)
+        best_metrics = train(args, logger, all_tasks=all_tasks)
         print(f"Task {task_idx + 1} completed successfully")
         print(f"Best metrics: {best_metrics}")
         return global_params["output_model_path"]
@@ -171,7 +171,7 @@ def main():
         task_config = tasks[i]
         
         # 运行任务
-        model_path = run_single_task(task_config, global_params, i, len(tasks), pretrained_model_path)
+        model_path = run_single_task(task_config, global_params, i, len(tasks), pretrained_model_path, all_tasks=tasks)
         
         # 更新预训练模型路径
         pretrained_model_path = model_path

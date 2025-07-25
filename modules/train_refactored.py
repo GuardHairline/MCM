@@ -41,7 +41,7 @@ import json
 import argparse
 
 
-def train(args, logger):
+def train(args, logger, all_tasks=[]):
     """主训练函数"""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
@@ -115,6 +115,30 @@ def train(args, logger):
     logger.info("Creating model")
     full_model = create_model(args, device, label_embedding_manager, logger)
     
+    # ========== 3.5) 为所有任务创建模型头 ==========
+    if all_tasks is not None:
+        for task in all_tasks:
+            session_name = task['session_name']
+            task_name = task['task_name']
+            if session_name in full_model.task_heads:
+                continue
+            task_args = argparse.Namespace(**task)
+            # 选择 head 构造函数
+            if getattr(task_args, 'use_label_embedding', False):
+                from models.task_heads.get_head_new import get_head
+            else:
+                from models.task_heads.get_head import get_head
+            label_emb = label_embedding_manager.get_embedding() if label_embedding_manager else None
+            # 选择 base_model
+            if hasattr(full_model, 'base_model'):
+                base_model_for_head = full_model.base_model
+                if hasattr(base_model_for_head, 'base_model'):
+                    base_model_for_head = base_model_for_head.base_model
+            else:
+                base_model_for_head = None
+            head = get_head(task_name, base_model_for_head, task_args, label_emb=label_emb)
+            full_model.add_task_head(session_name, task_name, head, task_args)
+        logger.info(f"All task heads created: {list(full_model.task_heads.keys())}")
     # ========== 4) 创建持续学习组件 ==========
     logger.info("Creating continual learning components")
     ewc, fisher_selector, replay_memory, lwf, si, mas, gem, pnn = create_continual_learning_components(
@@ -202,7 +226,7 @@ def train(args, logger):
                 if hasattr(full_model, 'set_active_head'):
                     # 尝试使用当前任务的session_name作为默认头
                     try:
-                        full_model.set_active_head(args.session_name)
+                        full_model.set_active_head(session_name)
                     except:
                         # 如果失败，不设置活动头，使用默认行为
                         logger.info(f"Using default head for zero-shot evaluation on {session_name}")

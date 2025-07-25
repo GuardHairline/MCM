@@ -95,47 +95,46 @@ class Full_Model(nn.Module):
                 logger.warning(f"Task heads file not found: {load_path}")
             return
         # 兼容PyTorch 2.6+安全机制，允许argparse.Namespace反序列化
-        with torch.serialization.safe_globals([argparse.Namespace]):
-            task_heads_state = torch.load(load_path, map_location=device)
-            
-            for session_name, task_info in task_heads_state.items():
-                # 重新创建模型头
-                try:
-                    if hasattr(task_info['args'], 'use_label_embedding') and task_info['args'].use_label_embedding:
-                        from models.task_heads.get_head_new import get_head
-                    else:
-                        from models.task_heads.get_head import get_head
-                    
-                    # 获取标签嵌入
-                    label_emb = None
-                    if label_embedding_manager:
-                        label_emb = label_embedding_manager.get_embedding()
-                    
-                    # 为每个历史任务创建独立的模型头
-                    # 对于MOE模型，需要使用base_model.base_model来获取原始的BaseMultimodalModel
-                    if hasattr(self.base_model, 'base_model'):
-                        # MOE模型的情况
-                        base_model_for_head = self.base_model.base_model
-                    else:
-                        # 普通模型的情况
-                        base_model_for_head = self.base_model
-                    
-                    head = get_head(task_info['task_name'], base_model_for_head, task_info['args'], label_emb=label_emb)
-                    head.load_state_dict(task_info['head_state_dict'])
-                    
-                    # 确保模型头在正确的设备上
-                    head = head.to(device)
-                    
-                    self.task_heads[session_name] = {
-                        'head': head,
-                        'task_name': task_info['task_name'],
-                        'args': task_info['args']
-                    }
-                    
-                    logger.info(f"Loaded task head for session {session_name} ({task_info['task_name']})")
-                except Exception as e:
-                    logger.warning(f"Warning: Failed to load task head for session {session_name}: {e}")
-                    continue
+        task_heads_state = torch.load(load_path, map_location=device)
+        
+        for session_name, task_info in task_heads_state.items():
+            # 重新创建模型头
+            try:
+                if hasattr(task_info['args'], 'use_label_embedding') and task_info['args'].use_label_embedding:
+                    from models.task_heads.get_head_new import get_head
+                else:
+                    from models.task_heads.get_head import get_head
+                
+                # 获取标签嵌入
+                label_emb = None
+                if label_embedding_manager:
+                    label_emb = label_embedding_manager.get_embedding()
+                
+                # 为每个历史任务创建独立的模型头
+                # 对于MOE模型，需要使用base_model.base_model来获取原始的BaseMultimodalModel
+                if hasattr(self.base_model, 'base_model'):
+                    # MOE模型的情况
+                    base_model_for_head = self.base_model.base_model
+                else:
+                    # 普通模型的情况
+                    base_model_for_head = self.base_model
+                
+                head = get_head(task_info['task_name'], base_model_for_head, task_info['args'], label_emb=label_emb)
+                head.load_state_dict(task_info['head_state_dict'])
+                
+                # 确保模型头在正确的设备上
+                head = head.to(device)
+                
+                self.task_heads[session_name] = {
+                    'head': head,
+                    'task_name': task_info['task_name'],
+                    'args': task_info['args']
+                }
+                
+                logger.info(f"Loaded task head for session {session_name} ({task_info['task_name']})")
+            except Exception as e:
+                logger.warning(f"Warning: Failed to load task head for session {session_name}: {e}")
+                continue
 
 
 def load_train_info(train_info_path: str) -> Dict[str, Any]:
@@ -264,17 +263,19 @@ def create_model(args, device: str, label_embedding_manager: Optional[LabelEmbed
                         except AttributeError:
                             current_param = None
                         
-                        if current_param is not None and hasattr(current_param, 'shape') and current_param.shape == value.shape:
+                        if current_param is not None and hasattr(current_param, 'shape') and hasattr(value, 'shape') and current_param.shape == value.shape:
                             filtered_params[key] = value
                             if logger:
                                 logger.info(f"Loading compatible parameter: {key} - shape {value.shape}")
                         else:
                             if current_param is not None:
-                                if logger:
+                                # 判断类型，避免float没有shape属性
+                                if hasattr(current_param, 'shape') and hasattr(value, 'shape'):
                                     logger.info(f"Skipping incompatible parameter {key}: checkpoint shape {value.shape}, current shape {current_param.shape}")
+                                else:
+                                    logger.info(f"Skipping incompatible parameter {key}: checkpoint type {type(value)}, current type {type(current_param)}, value={value}")
                             else:
-                                if logger:
-                                    logger.info(f"Skipping parameter {key}: not found in current head")
+                                logger.info(f"Skipping parameter {key}: not found in current head")
                     else:
                         filtered_params[key] = value
                 
@@ -391,17 +392,19 @@ def create_model(args, device: str, label_embedding_manager: Optional[LabelEmbed
                         except AttributeError:
                             current_param = None
                         
-                        if current_param is not None and hasattr(current_param, 'shape') and current_param.shape == value.shape:
+                        if current_param is not None and hasattr(current_param, 'shape') and hasattr(value, 'shape') and current_param.shape == value.shape:
                             filtered_params[key] = value
                             if logger:
                                 logger.info(f"Loading compatible parameter: {key} - shape {value.shape}")
                         else:
                             if current_param is not None:
-                                if logger:
+                                # 判断类型，避免float没有shape属性
+                                if hasattr(current_param, 'shape') and hasattr(value, 'shape'):
                                     logger.info(f"Skipping incompatible parameter {key}: checkpoint shape {value.shape}, current shape {current_param.shape}")
+                                else:
+                                    logger.info(f"Skipping incompatible parameter {key}: checkpoint type {type(value)}, current type {type(current_param)}, value={value}")
                             else:
-                                if logger:
-                                    logger.info(f"Skipping parameter {key}: not found in current head")
+                                logger.info(f"Skipping parameter {key}: not found in current head")
                     else:
                         filtered_params[key] = value
                 
