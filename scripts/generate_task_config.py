@@ -312,7 +312,14 @@ class TaskConfigGenerator:
         
         # 环境配置
         env_config = self.environments[env]
+
+        use_label_embedding = task_params.get("use_label_embedding", False) or kwargs.get("use_label_embedding", False)
         
+        if use_label_embedding:
+            task_params["lr"] = 1e-3
+            task_params["weight_decay"] = 1e-4
+            task_params["gamma"] = 0.7
+            
         base_config = {
             "task_name": task_name,
             "session_name": session_name,
