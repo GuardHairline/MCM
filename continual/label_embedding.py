@@ -139,6 +139,20 @@ class GlobalLabelEmbedding(nn.Module):
         # 从 label2idx 中统计指定任务的标签数量
         task_labels = [label_id for (task_name, label_id) in self.label2idx.keys() if task_name == task]
         return len(task_labels)
+    def freeze_seen_labels(self, new_task_key:str, new_num_labels:int):
+        """
+        训练新任务前调用。把旧任务的 label embedding 的 grad 置 0，
+        仅允许新任务标签更新。
+        """
+        new_indices = [self.label2idx[(new_task_key, i)] for i in range(new_num_labels)]
+        def hook(grad):
+            mask = torch.zeros_like(grad)
+            mask[new_indices] = 1
+            return grad * mask
+        # 先移除旧 hook，避免重复挂
+        if hasattr(self, "_grad_handle"):
+            self._grad_handle.remove()
+        self._grad_handle = self.embedding.weight.register_hook(hook)
 
 def create_label_groups() -> Dict[str, List[Tuple[str, int]]]:
     """
