@@ -33,7 +33,8 @@ def get_head(task, base_model, args, label_emb: GlobalLabelEmbedding = None):
             hidden_dim=getattr(args, 'span_hidden', 256),
             num_labels=num_labels,
             label_emb=label_emb,
-            task_name=task
+            task_name=task,
+            use_crf=(args.num_labels > 3),
         )
     elif task == "masc":                             # sentence-level
         return LabelAttentionSentHead(
