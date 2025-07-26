@@ -34,7 +34,7 @@ def get_head(task, base_model, args, label_emb: GlobalLabelEmbedding = None):
             num_labels=num_labels,
             label_emb=label_emb,
             task_name=task,
-            use_crf=(args.num_labels > 3),
+            # use_crf=(args.num_labels > 3),
         )
     elif task == "masc":                             # sentence-level
         return LabelAttentionSentHead(
