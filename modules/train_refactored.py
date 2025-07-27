@@ -110,6 +110,11 @@ def train(args, logger, all_tasks=[]):
         )
         label_embedding_manager.create_or_load_embedding(args.label_embedding_path, device)
         label_embedding_manager.print_label_mapping()
+
+        # 冻结旧任务标签
+        emb_obj = label_embedding_manager.get_embedding()
+        if emb_obj is not None:
+            emb_obj.freeze_seen_labels(args.task_name, args.num_labels)
     
     # ========== 3) 创建模型 ==========
     logger.info("Creating model")
