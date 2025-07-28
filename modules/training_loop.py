@@ -302,14 +302,16 @@ def train_epoch(model, train_loader, optimizer, device, args,
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         
-        # DDAS 自编码器训练
+        # === DDAS 自编码器训练 ===
         if args.ddas and ddas_optimizer is not None and ddas_feats:
-            ae_inputs = torch.cat(ddas_feats)
+            # 将当前 batch 所有特征拼接
+            ae_inputs = torch.cat(ddas_feats, dim=0)        # (N, D)
             ddas_optimizer.zero_grad()
-            recon = model.ddas.ae_list[-1](ae_inputs)
+            recon = model.ddas.ae_list[-1](ae_inputs)       # 只训练最后一个自编码器
             ae_loss = F.mse_loss(recon, ae_inputs)
             ae_loss.backward()
             ddas_optimizer.step()
+            # 清空特征缓存
             ddas_feats.clear()
         
         total_loss += loss.item()
@@ -401,6 +403,9 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, device, a
     # 新增：训练结束后评估一次dev/test
     final_dev_metrics = evaluate_single_task(model, args.task_name, "dev", device, args)
     final_test_metrics = evaluate_single_task(model, args.task_name, "test", device, args)
+    if args.ddas and hasattr(model, 'ddas') and model.ddas is not None:
+        # 冻结旧的自编码器并为新任务添加一个自编码器
+        model.ddas.add_task()
     return {
         "best_metrics": best_metrics,
         "epoch_losses": epoch_losses,

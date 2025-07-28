@@ -34,6 +34,7 @@ from continual.label_embedding import (
     build_global_label_mapping, create_label_groups, get_label_text_mapping, generate_label_embeddings, GlobalLabelEmbedding
 )
 from continual.label_embedding_manager import LabelEmbeddingManager
+from continual.moe_adapters.freeze_topk_experts import freeze_topk_experts
 from continual.metrics import ContinualMetrics
 from utils.logging import setup_logger
 from utils.ensureFileExists import ensure_directory_exists
@@ -204,7 +205,11 @@ def train(args, logger, all_tasks=[]):
         full_model, train_loader, device, args,
         ewc, fisher_selector, si, gem, session_info, logger
     )
-    
+    if args.moe_adapters and hasattr(full_model.base_model, 'text_adapters'):
+    # 假设需要冻结每层一个专家，可用 args.freeze_topk_experts 参数配置
+        freeze_topk = getattr(args, 'freeze_topk_experts', 1)
+        from modules.training_loop import freeze_topk_experts
+        freeze_topk_experts(full_model, freeze_topk)
     # ========== 10) 评估和更新训练信息 ==========
     logger.info("Evaluating model")
     # 评估当前任务

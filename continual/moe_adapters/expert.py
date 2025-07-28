@@ -1,7 +1,6 @@
 # continual/moe_adapters/expert.py
 import torch.nn as nn
 import torch
-from .expert import Expert  # 原来的下采样/上采样专家
 from .lora_expert import LoRAExpert
 
 class Expert(nn.Module):
