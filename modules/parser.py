@@ -163,6 +163,14 @@ def create_train_parser() -> argparse.ArgumentParser:
                        help="Number of experts for MoE")
     parser.add_argument("--moe_top_k", type=int, default=1,
                        help="Top-k experts for MoE")
+    parser.add_argument("--moe_expert_type", type=str, default="lora",
+                    choices=["lora", "adapter"],
+                    help="Expert type: LoRA or simple Adapter")
+    parser.add_argument("--lora_rank", type=int, default=8,
+                        help="Rank of LoRA experts")
+    parser.add_argument("--freeze_topk_experts", type=int, default=1,
+                        help="Number of experts to freeze after each task")
+
     
     # DDAS
     parser.add_argument("--ddas", type=int, default=0,

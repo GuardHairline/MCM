@@ -1,15 +1,15 @@
 # continual/moe_adapters/moe_adapter_layer.py
 import torch
 import torch.nn as nn
-from .expert import Expert
+from .expert import Expert, build_expert
 
 class MoEAdapterLayer(nn.Module):
     """
     Token‑Level MoE Adapter with task‑specific router.
     """
-    def __init__(self, hidden_size: int, num_experts: int, top_k: int = 1):
+    def __init__(self, hidden_size: int, num_experts: int, top_k: int = 1, expert_type: str = "lora", lora_rank: int = 8):
         super().__init__()
-        self.experts = nn.ModuleList([Expert(hidden_size) for _ in range(num_experts)])
+        self.experts = nn.ModuleList([build_expert(hidden_size, expert_type=expert_type, rank=lora_rank) for _ in range(num_experts)])
         self.router  = nn.Linear(hidden_size, num_experts, bias=False)
         self.top_k   = top_k
         self.softmax = nn.Softmax(dim=-1)
@@ -28,28 +28,17 @@ class MoEAdapterLayer(nn.Module):
         nn.init.normal_(self.router.weight.data[old_out:], std=1e-4)  # 新列初始化
 
     def forward(self, x):
-        """
-        x: (B, L, H)
-        return: (B, L, H)  残差 + 加权专家
-        """
-        B, L, H = x.shape
-
-        # ---------- step‑1 计算所有专家输出 ----------
-        # experts_out: (B, E, L, H)
-        experts_out = torch.stack([expert(x) for expert in self.experts], dim=1)
-
-        # ---------- step‑2 路由打分 ----------
-        pooled = x.mean(dim=1)  # (B, H)
-        gate = self.softmax(self.router(pooled))  # (B, E)
-
-        # ---------- step‑3 只保留 top‑k ----------
-        if self.top_k < gate.size(1):
-            topk_val, topk_idx = gate.topk(self.top_k, dim=-1)  # (B,k)
-            mask = torch.zeros_like(gate)  # (B,E)
-            mask.scatter_(1, topk_idx, topk_val)  # 其余位置为 0
-            gate = mask  # (B,E)
-
-        # ---------- step‑4 加权聚合 ----------
+        # x: (B, L, H)
+        cls = x[:, 0, :]                 # 取 [CLS] 的 hidden 向量
+        gate_logits = self.router(cls)   # (B, E)
+        if self.top_k < gate_logits.size(1):
+            # 设定非 Top‑k 的位置为 −∞
+            mask = torch.full_like(gate_logits, float('-inf'))
+            topk_val, topk_idx = gate_logits.topk(self.top_k, dim=-1)
+            mask.scatter_(1, topk_idx, topk_val)
+            gate = torch.softmax(mask, dim=-1)
+        else:
+            gate = torch.softmax(gate_logits, dim=-1)
         gate = gate.view(B, -1, 1, 1)  # (B,E,1,1)
         weighted = (gate * experts_out).sum(dim=1)  # (B,L,H)
 
