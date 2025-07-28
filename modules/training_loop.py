@@ -44,16 +44,22 @@ def train_epoch(model, train_loader, optimizer, device, args,
         
         # 前向传播
         if args.tam_cl:
-            # TamCLModel 返回 (logits, seq, seq_tab)
-            out = model(
-                input_ids, attention_mask, token_type_ids, image_tensor,
-                session_id=args.session_name
-            )
-            if isinstance(out, tuple) and len(out) == 3:
-                logits, seq, seq_tab = out
-            else:
-                logits = out
-                seq = seq_tab = None
+            # =========== TAM-CL 前向 =============
+            out = model(input_ids, attention_mask, token_type_ids, image_tensor,
+                        session_id=args.session_name)
+            logits, seq, _ = out if isinstance(out, tuple) else (out, None, None)
+            # 1. 分类损失
+            classification_loss = ...
+            # 2. KD + 多样性损失
+            kd_loss = model.compute_distillation(seq, args.session_name, T=args.lwf_T)
+            div_loss = model.diversity_loss()
+            # 3. 权重 λ、α、β 计算
+            lambda_tam = (len(train_info["sessions"])) / (len(train_info["sessions"]) + 1)
+            alpha_tam = getattr(args, "tam_alpha", args.lwf_alpha)
+            beta_base = 0.1 * ((1 - lambda_tam) * classification_loss + lambda_tam * alpha_tam * kd_loss)
+            beta_tam = torch.min(div_loss.detach(), beta_base.detach())
+            # 4. 组合
+            loss = (1 - lambda_tam) * classification_loss + lambda_tam * alpha_tam * kd_loss + beta_tam * div_loss
         elif args.clap4clip:
             # CLAP4CLIP 模型直接处理
             logits = model(
@@ -230,7 +236,7 @@ def train_epoch(model, train_loader, optimizer, device, args,
                 seq = None
             if seq is not None:
                 kd_loss = model.compute_distillation(seq, args.session_name, T=args.lwf_T)
-                div_loss = model.diversity_loss(args.session_name)
+                div_loss = model.diversity_loss()
                 loss = loss + args.lwf_alpha * kd_loss + 0.1 * div_loss
         
         # MoE 路由平衡损失

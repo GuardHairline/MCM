@@ -155,6 +155,11 @@ def create_train_parser() -> argparse.ArgumentParser:
     # TAM-CL
     parser.add_argument("--tam_cl", type=int, default=0,
                        help="Whether to use TAM-CL")
+    parser.add_argument("--tam_alpha", type=float, default=1.0,
+                    help="Weight α for intermediate KD loss in TAM-CL")
+    parser.add_argument("--replay_frequency", type=int, default=0,
+                        help="How many steps between experience replay batches (0 = no replay)")
+
     
     # MoE Adapters
     parser.add_argument("--moe_adapters", type=int, default=0,
