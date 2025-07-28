@@ -75,6 +75,8 @@ def create_train_parser() -> argparse.ArgumentParser:
     # ========== 标签嵌入参数 ==========
     parser.add_argument("--use_label_embedding", action="store_true",
                        help="Use label embedding")
+    parser.add_argument("--use_hierarchical_head", action="store_true",
+                       help="Use hierarchical multitask model with token and sentence heads")
     parser.add_argument("--label_emb_dim", type=int, default=128,
                        help="Label embedding dimension")
     parser.add_argument("--use_similarity_reg", action="store_true", default=True,

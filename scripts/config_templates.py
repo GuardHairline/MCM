@@ -223,22 +223,26 @@ class ConfigTemplate:
             },
             "labelembedding": {
                 "params": {
+                    "use_label_embedding": 1,
+                    "use_hierarchical_head": 1
                 },
-                "description": "Label Embedding"
+                "description": "Label Embedding with Hierarchical Head"
             },
             "moe_labelembedding": {
                 "params": {
                     "moe_adapters": 1,
                     "moe_num_experts": 4,
                     "moe_top_k": 2,
-                    "use_label_embedding": 1
+                    "use_label_embedding": 1,
+                    "use_hierarchical_head": 1
                 },
                 "description": "MoE + Label Embedding"
             },
             "clap4clip_labelembedding": {
                 "params": {
                     "clap4clip": 1,
-                    "use_label_embedding": 1
+                    "use_label_embedding": 1,
+                    "use_hierarchical_head": 1
                 },
                 "description": "CLAP4CLIP + Label Embedding"
             }

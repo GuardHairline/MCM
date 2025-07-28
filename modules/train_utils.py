@@ -168,6 +168,40 @@ def create_model(args, device: str, label_embedding_manager: Optional[LabelEmbed
         from models.task_heads.get_head_new import get_head
     else:
         from models.task_heads.get_head import get_head
+    
+    # 检查是否使用混合头
+    if hasattr(args, 'use_hierarchical_head') and args.use_hierarchical_head:
+        from models.hierarchical_multitask_model import HierarchicalMultitaskModel
+        
+        # 确定token和sentence标签数量
+        if args.task_name in ["mate", "mner", "mabsa"]:
+            num_token_labels = args.num_labels
+            num_sentence_labels = 3  # 默认句子分类标签数
+        else:
+            num_token_labels = 9  # 默认token标签数
+            num_sentence_labels = args.num_labels
+        
+        # 获取标签嵌入
+        label_emb = label_embedding_manager.get_embedding() if label_embedding_manager else None
+        
+        model = HierarchicalMultitaskModel(
+            text_model_name=args.text_model_name,
+            image_model_name=args.image_model_name,
+            num_token_labels=num_token_labels,
+            num_sentence_labels=num_sentence_labels,
+            fusion=args.fusion_strategy,
+            hidden_dim=args.hidden_dim,
+            label_emb=label_emb,
+            task_name=args.task_name
+        )
+        
+        # 加载预训练模型
+        if args.pretrained_model_path and os.path.exists(args.pretrained_model_path):
+            logger.info(f"Loading pretrained hierarchical model from: {args.pretrained_model_path}")
+            checkpoint = torch.load(args.pretrained_model_path, map_location=device)
+            model.load_state_dict(checkpoint, strict=False)
+        
+        return model.to(device)
     if args.tam_cl:
         model = TamCLModel(
             text_model_name=args.text_model_name,

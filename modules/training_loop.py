@@ -30,11 +30,6 @@ def train_epoch(model, train_loader, optimizer, device, args,
     label_counter = Counter()
     ddas_feats = []
 
-    # # [DEBUG] 打印所有参数的requires_grad
-    # print("[DEBUG] Parameter requires_grad status:")
-    # for name, param in model.named_parameters():
-    #     print(f"[DEBUG] {name}: requires_grad={param.requires_grad}")
-    
     for batch_idx, batch in enumerate(train_loader):
         # 数据移到设备
         input_ids = batch['input_ids'].to(device)
@@ -70,50 +65,115 @@ def train_epoch(model, train_loader, optimizer, device, args,
             loss = F.cross_entropy(logits, labels)
             label_counter.update(labels.cpu().numpy())
         else:
-            is_seq_task = is_sequence_task(args.task_name)
-            
-            if is_seq_task:
-                # 序列标注任务
-                fused_feat = model.base_model(
-                    input_ids, attention_mask, token_type_ids, image_tensor,
-                    return_sequence=True
-                )
-                logits = model.head(fused_feat)
-                # TokenLabelHead 直接输出 (batch_size, seq_len, num_labels)
-                # print('logits.shape:', logits.shape, 'labels.shape:', labels.shape)
-
-                # 类别权重处理
-                class_weights = get_class_weights(args.task_name, device)
-                if class_weights is not None:
-                    loss = F.cross_entropy(
-                        logits.reshape(-1, logits.size(-1)),
-                        labels.reshape(-1),
-                        weight=class_weights,
-                        ignore_index=-100
-                    )
+            # 检查是否使用混合头
+            if hasattr(args, 'use_hierarchical_head') and args.use_hierarchical_head:
+                # 使用混合头模型
+                token_logits, sent_logits = model(input_ids, attention_mask, token_type_ids, image_tensor)
+                
+                is_seq_task = is_sequence_task(args.task_name)
+                
+                if is_seq_task:
+                    # 序列标注任务：主要使用token头，句子头作为辅助监督
+                    # 主要损失：token级预测
+                    class_weights = get_class_weights(args.task_name, device)
+                    if class_weights is not None:
+                        main_loss = F.cross_entropy(
+                            token_logits.reshape(-1, token_logits.size(-1)),
+                            labels.reshape(-1),
+                            weight=class_weights,
+                            ignore_index=-100
+                        )
+                    else:
+                        main_loss = F.cross_entropy(
+                            token_logits.reshape(-1, token_logits.size(-1)),
+                            labels.reshape(-1),
+                            ignore_index=-100
+                        )
+                    
+                    # 辅助损失：句子级预测（将token标签聚合为句子标签）
+                    # 简单的聚合策略：如果序列中有任何非O标签，则句子标签为1，否则为0
+                    sentence_labels = torch.zeros(labels.size(0), dtype=torch.long, device=device)
+                    for i in range(labels.size(0)):
+                        seq_labels = labels[i]
+                        # 移除padding标签(-100)
+                        valid_labels = seq_labels[seq_labels != -100]
+                        if len(valid_labels) > 0 and (valid_labels != 0).any():
+                            sentence_labels[i] = 1
+                    
+                    aux_loss = F.cross_entropy(sent_logits, sentence_labels)
+                    
+                    # 总损失 = 主要损失 + 辅助损失权重
+                    aux_weight = 0.1  # 辅助损失权重
+                    loss = main_loss + aux_weight * aux_loss
+                    
+                    logits = token_logits  # 用于后续处理
                 else:
-                    loss = F.cross_entropy(
-                        logits.reshape(-1, logits.size(-1)),
-                        labels.reshape(-1),
+                    # 句级分类任务：主要使用句子头，token头作为辅助监督
+                    # 主要损失：句子级预测
+                    main_loss = F.cross_entropy(sent_logits, labels)
+                    
+                    # 辅助损失：token级预测（将句子标签扩展到所有token）
+                    token_labels = labels.unsqueeze(1).expand(-1, token_logits.size(1))
+                    aux_loss = F.cross_entropy(
+                        token_logits.reshape(-1, token_logits.size(-1)),
+                        token_labels.reshape(-1),
                         ignore_index=-100
                     )
-                
-                if args.ddas:
-                    pooled_feature = fused_feat.mean(dim=1)
-            else:
-                # 句级分类任务
-                fused_feat = model.base_model(
-                    input_ids, attention_mask, token_type_ids, image_tensor,
-                    return_sequence=False
-                )
-                logits = model.head(fused_feat)
-                # print('logits.shape:', logits.shape, 'labels.shape:', labels.shape)
-                loss = F.cross_entropy(logits, labels)
-                
-                if args.ddas:
-                    pooled_feature = fused_feat
+                    
+                    # 总损失 = 主要损失 + 辅助损失权重
+                    aux_weight = 0.1  # 辅助损失权重
+                    loss = main_loss + aux_weight * aux_loss
+                    
+                    logits = sent_logits  # 用于后续处理
                 
                 label_counter.update(labels.cpu().numpy())
+                
+                if args.ddas:
+                    # 对于混合头，使用token特征的均值作为DDAS特征
+                    pooled_feature = token_logits.mean(dim=1)
+            else:
+                # 原有的单头逻辑
+                is_seq_task = is_sequence_task(args.task_name)
+                
+                if is_seq_task:
+                    # 序列标注任务
+                    fused_feat = model.base_model(
+                        input_ids, attention_mask, token_type_ids, image_tensor,
+                        return_sequence=True
+                    )
+                    logits = model.head(fused_feat)
+
+                    # 类别权重处理
+                    class_weights = get_class_weights(args.task_name, device)
+                    if class_weights is not None:
+                        loss = F.cross_entropy(
+                            logits.reshape(-1, logits.size(-1)),
+                            labels.reshape(-1),
+                            weight=class_weights,
+                            ignore_index=-100
+                        )
+                    else:
+                        loss = F.cross_entropy(
+                            logits.reshape(-1, logits.size(-1)),
+                            labels.reshape(-1),
+                            ignore_index=-100
+                        )
+                    
+                    if args.ddas:
+                        pooled_feature = fused_feat.mean(dim=1)
+                else:
+                    # 句级分类任务
+                    fused_feat = model.base_model(
+                        input_ids, attention_mask, token_type_ids, image_tensor,
+                        return_sequence=False
+                    )
+                    logits = model.head(fused_feat)
+                    loss = F.cross_entropy(logits, labels)
+                    
+                    if args.ddas:
+                        pooled_feature = fused_feat
+                    
+                    label_counter.update(labels.cpu().numpy())
             
             if args.ddas:
                 ddas_feats.append(pooled_feature.detach())
