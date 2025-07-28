@@ -208,7 +208,6 @@ def train(args, logger, all_tasks=[]):
     if args.moe_adapters and hasattr(full_model.base_model, 'text_adapters'):
     # 假设需要冻结每层一个专家，可用 args.freeze_topk_experts 参数配置
         freeze_topk = getattr(args, 'freeze_topk_experts', 1)
-        from modules.training_loop import freeze_topk_experts
         freeze_topk_experts(full_model, freeze_topk)
     # ========== 10) 评估和更新训练信息 ==========
     logger.info("Evaluating model")

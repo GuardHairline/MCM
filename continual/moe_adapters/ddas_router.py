@@ -25,7 +25,25 @@ class DDASRouter(nn.Module):
         self.threshold = threshold
 
     def add_task(self):
-        self.ae_list.append(TinyAE(self.ae_list[0].dec.out_features))
+        """
+        为新任务创建一个新的 TinyAE。
+        修复了设备不一致和 out_features 错误问题。
+        """
+        # 确定输出维度：取第一个自编码器 decoder 最后一层的 out_features
+        if isinstance(self.ae_list[0].dec, nn.Sequential):
+            out_dim = self.ae_list[0].dec[-1].out_features
+        else:
+            out_dim = self.ae_list[0].dec.out_features
+
+        # 冻结旧自编码器参数，避免在新任务训练时被更新
+        for ae in self.ae_list:
+            for p in ae.parameters():
+                p.requires_grad = False
+
+        # 创建新的 TinyAE 并放到与现有自编码器相同的设备上
+        device = next(self.ae_list[0].parameters()).device
+        new_ae = TinyAE(out_dim).to(device)
+        self.ae_list.append(new_ae)
 
     def forward(self, feat):
         # feat: (B, D)
