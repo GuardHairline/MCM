@@ -288,12 +288,15 @@ class ExperienceReplayMemory:
         labels = replay_batch["labels"]
 
 
-        if isinstance(args, dict):
-            task_name = args.get("task_name")
-            num_labels = args.get("num_labels")
+        # 获取历史任务的参数信息
+        session_info = self.session_memory_buffers[session_name]["session_info"]
+        if isinstance(session_info.get("args"), dict):
+            session_args = argparse.Namespace(**session_info["args"])
         else:
-            task_name = args.task_name
-            num_labels = args.num_labels
+            session_args = session_info["args"]
+        
+        task_name = session_args.task_name
+        num_labels = session_args.num_labels
 
 
         # 判断是否为序列任务（例如 MNER、MATE、MABSA）
@@ -303,8 +306,14 @@ class ExperienceReplayMemory:
                 return_sequence=True
             )
 
-            tmp_head = get_head(task_name, model.base_model, args).to(device)
-            logits = tmp_head(fused_feat)  # => (batch_size, seq_len, num_labels)
+            # 使用保存的历史任务head
+            if hasattr(model, 'set_active_head'):
+                model.set_active_head(session_name)
+                logits = model.head(fused_feat)  # => (batch_size, seq_len, num_labels)
+            else:
+                # 如果没有set_active_head方法，回退到创建新head
+                tmp_head = get_head(task_name, model.base_model, session_args).to(device)
+                logits = tmp_head(fused_feat)  # => (batch_size, seq_len, num_labels)
 
 
 
@@ -333,12 +342,27 @@ class ExperienceReplayMemory:
                 input_ids, attention_mask, token_type_ids, image_tensor,
                 return_sequence=False
             )
-            logits = model.set_active_head(fused_feat)  # => (batch_size, num_labels)
+            
+            # 使用保存的历史任务head
+            if hasattr(model, 'set_active_head'):
+                model.set_active_head(session_name)
+                logits = model.head(fused_feat)  # => (batch_size, num_labels)
+            else:
+                # 如果没有set_active_head方法，回退到创建新head
+                tmp_head = get_head(task_name, model.base_model, session_args).to(device)
+                logits = tmp_head(fused_feat)  # => (batch_size, num_labels)
 
             loss = nn.functional.cross_entropy(logits, labels)  # => (batch_size)
 
         loss.backward()
         optimizer.step()
+
+        # 恢复当前任务的head（如果模型支持）
+        if hasattr(model, 'set_active_head') and hasattr(args, 'session_name'):
+            try:
+                model.set_active_head(args.session_name)
+            except Exception as e:
+                logger.warning(f"Failed to restore current task head: {e}")
 
         logger.info("会话 '%s' 在步数 %d 重放步骤完成，损失值: %.4f", session_name, current_step, loss.item())
         return loss
