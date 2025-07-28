@@ -246,7 +246,7 @@ class TaskConfigGenerator:
                 return ""
     
     def generate_file_names(self, env: str, dataset: str, strategy: str, modes: List[str], 
-                           use_label_embedding: bool = False) -> Dict[str, str]:
+                           use_label_embedding: bool = False, seq_suffix: str = "") -> Dict[str, str]:
         """生成文件名称"""
         env_config = self.environments[env]
         
@@ -259,6 +259,8 @@ class TaskConfigGenerator:
             base_name += f"_{mode_suffix}"
         if use_label_embedding:
             base_name += "_label_emb"
+        if seq_suffix:
+            base_name += f"_{seq_suffix}"
         
         # 模型名称
         if env == "server":
@@ -319,6 +321,8 @@ class TaskConfigGenerator:
             task_params["lr"] = 1e-3
             task_params["weight_decay"] = 1e-4
             task_params["gamma"] = 0.7
+            # 当使用label_embedding时，自动启用混合头
+            task_params["use_hierarchical_head"] = True
             
         base_config = {
             "task_name": task_name,
@@ -351,6 +355,7 @@ class TaskConfigGenerator:
             **strategy_params,
             # 标签嵌入
             "use_label_embedding": task_params.get("use_label_embedding", False),
+            "use_hierarchical_head": task_params.get("use_hierarchical_head", False),
             "label_emb_dim": task_params.get("label_emb_dim", 128),
             "use_similarity_reg": task_params.get("use_similarity_reg", True),
             "similarity_weight": task_params.get("similarity_weight", 0.1),
@@ -371,6 +376,7 @@ class TaskConfigGenerator:
                                     mode_sequence: List[str] = None,
                                     strategy: str = "none",
                                     use_label_embedding: bool = False,
+                                    seq_suffix: str = "",
                                     **kwargs) -> Dict[str, Any]:
         """生成完整的任务序列配置"""
         
@@ -389,7 +395,7 @@ class TaskConfigGenerator:
         env_config = self.environments[env]
         
         # 文件名称（基于所有模式）
-        file_names = self.generate_file_names(env, dataset, strategy, mode_sequence, use_label_embedding)
+        file_names = self.generate_file_names(env, dataset, strategy, mode_sequence, use_label_embedding, seq_suffix)
         
         # 创建任务配置列表
         tasks = []
@@ -422,6 +428,7 @@ class TaskConfigGenerator:
             "mode_sequence": mode_sequence,
             "mode_suffix": file_names["mode_suffix"],
             "use_label_embedding": use_label_embedding,
+            "seq_suffix": seq_suffix,
             "total_tasks": len(tasks),
             "tasks": tasks,
             "global_params": {
@@ -464,6 +471,9 @@ def main():
                        help="输出配置文件路径（可选，会自动生成）")
     parser.add_argument("--use_label_embedding", action="store_true",
                        help="是否使用标签嵌入")
+    parser.add_argument("--seq_suffix", type=str, default="",
+                       help="序列后缀（如seq1、seq2等）")
+
     
     args = parser.parse_args()
     
@@ -477,7 +487,8 @@ def main():
         task_sequence=args.task_sequence,
         mode_sequence=args.mode_sequence,
         strategy=args.strategy,
-        use_label_embedding=args.use_label_embedding
+        use_label_embedding=args.use_label_embedding,
+        seq_suffix=args.seq_suffix
     )
     
     # 自动生成文件名
