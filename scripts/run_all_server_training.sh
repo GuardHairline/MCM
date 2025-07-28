@@ -72,7 +72,7 @@ for dataset in "${datasets[@]}"; do
         echo "=== 运行配置: $config_name ==="
         echo "配置文件: $config_file"
         
-        # 创建日志文件
+        # 创建日志文件 - 保持与配置文件相同的命名格式
         log_file="scripts/log/server_training/${config_name}.log"
         
         # 运行训练脚本
