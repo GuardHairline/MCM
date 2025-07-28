@@ -49,12 +49,35 @@ def train_epoch(model, train_loader, optimizer, device, args,
                         session_id=args.session_name)
             logits, seq, _ = out if isinstance(out, tuple) else (out, None, None)
             # 1. 分类损失
-            classification_loss = ...
+            is_seq_task = is_sequence_task(args.task_name)
+            class_weights = get_class_weights(args.task_name, device)
+            if is_seq_task:
+                if class_weights is not None:
+                    classification_loss = F.cross_entropy(
+                        logits.reshape(-1, logits.size(-1)),
+                        labels.reshape(-1),
+                        weight=class_weights,
+                        ignore_index=-100
+                    )
+                else:
+                    classification_loss = F.cross_entropy(
+                        logits.reshape(-1, logits.size(-1)),
+                        labels.reshape(-1),
+                        ignore_index=-100
+                    )
+            else:
+                classification_loss = F.cross_entropy(logits, labels)
+            model.last_inputs = {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "token_type_ids": token_type_ids,
+                "image_tensor": image_tensor,
+            }
             # 2. KD + 多样性损失
             kd_loss = model.compute_distillation(seq, args.session_name, T=args.lwf_T)
             div_loss = model.diversity_loss()
             # 3. 权重 λ、α、β 计算
-            lambda_tam = (len(train_info["sessions"])) / (len(train_info["sessions"]) + 1)
+            lambda_tam = args.old_sessions_count / (args.old_sessions_count + 1)
             alpha_tam = getattr(args, "tam_alpha", args.lwf_alpha)
             beta_base = 0.1 * ((1 - lambda_tam) * classification_loss + lambda_tam * alpha_tam * kd_loss)
             beta_tam = torch.min(div_loss.detach(), beta_base.detach())
@@ -235,9 +258,21 @@ def train_epoch(model, train_loader, optimizer, device, args,
             else:
                 seq = None
             if seq is not None:
-                kd_loss = model.compute_distillation(seq, args.session_name, T=args.lwf_T)
+                # 计算 λ 和 α
+                lambda_tam = args.old_sessions_count / (args.old_sessions_count + 1)
+                alpha_tam  = getattr(args, "tam_alpha", args.lwf_alpha)
+
+                # 计算 KD 与多样性损失
+                kd_loss  = model.compute_distillation(seq, args.session_name, T=args.lwf_T)
                 div_loss = model.diversity_loss()
-                loss = loss + args.lwf_alpha * kd_loss + 0.1 * div_loss
+
+                # 计算 β
+                beta_base = 0.1 * ((1 - lambda_tam) * classification_loss + lambda_tam * alpha_tam * kd_loss)
+                beta_tam = torch.min(div_loss.detach(), beta_base.detach())
+
+                # 最终损失
+                loss = (1 - lambda_tam) * classification_loss + lambda_tam * alpha_tam * kd_loss + beta_tam * div_loss
+
         
         # MoE 路由平衡损失
         if args.moe_adapters and hasattr(model, 'base_model') and hasattr(model.base_model, 'text_adapters'):

@@ -56,6 +56,7 @@ def train(args, logger, all_tasks=[]):
     # ========== 1) 加载训练信息 ==========
     train_info = load_train_info(args.train_info_json)
     old_sessions_count = len(train_info["sessions"])
+    args.old_sessions_count = old_sessions_count
     logger.info(f"Previously learned sessions: {old_sessions_count}")
     
     # ========== 1.5) 加载任务配置文件（如果提供）用于0样本检测 ==========
