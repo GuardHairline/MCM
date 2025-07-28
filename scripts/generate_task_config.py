@@ -188,7 +188,8 @@ class TaskConfigGenerator:
                 "params": {
                     "moe_adapters": 1,
                     "moe_num_experts": 4,
-                    "moe_top_k": 2
+                    "moe_top_k": 2,
+                    "ddas": 1
                 },
                 "description": "MoE Adapters"
             },
