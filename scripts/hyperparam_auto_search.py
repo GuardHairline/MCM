@@ -95,12 +95,16 @@ def main():
                 data_dir = './data/MASC'
             
             # 根据任务设置num_labels
-            if task in ['mate', 'mner', 'mabsa']:
-                num_labels = 7  # 序列标注任务的标签数
+            if task == 'mate':
+                num_labels = 3
+            elif task == 'mner':
+                num_labels = 9
+            elif task == 'mabsa':
+                num_labels = 7
             elif task == 'masc':
-                num_labels = 3  # 句子分类任务的标签数
+                num_labels = 3
             else:
-                num_labels = 3  # 默认值
+                num_labels = 3
             
             # 生成基本参数
             cmd_args = [
