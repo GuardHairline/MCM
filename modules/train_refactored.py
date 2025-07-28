@@ -169,7 +169,9 @@ def train(args, logger, all_tasks=[]):
     test_loader = DataLoader(
         test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=num_workers
     )
-    
+    # ========== 5.5) 如果使用 GEM，注册当前任务的记忆样本 ==========
+    if gem is not None:
+        gem.register_task(args.task_name, train_dataset)
     # ========== 6) 创建优化器和调度器 ==========
     optimizer, scheduler = create_optimizer(full_model, args)
     

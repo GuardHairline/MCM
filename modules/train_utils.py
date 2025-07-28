@@ -543,7 +543,10 @@ def create_continual_learning_components(args, full_model, train_info: Dict[str,
     if args.gem:
         if logger:
             logger.info(f"[GEM] memory_size={args.gem_mem}")
-        gem = GEMManager(full_model, memory_size=args.gem_mem, mem_dir=args.gem_mem_dir)
+        # 指定 device，避免后续计算时设备不一致
+        gem = GEMManager(full_model, memory_size=args.gem_mem,
+                         mem_dir=args.gem_mem_dir, device=device)
+        # 为旧任务加载记忆
         for session in train_info["sessions"]:
             sess_args = argparse.Namespace(**session["args"])
             old_ds = get_dataset(session["task_name"], "train", sess_args)
