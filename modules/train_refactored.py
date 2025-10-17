@@ -28,7 +28,7 @@ from .train_utils import (
     load_train_info, create_model, create_continual_learning_components,
     create_session_info, save_train_info, create_optimizer, create_ddas_optimizer
 )
-from .training_loop import train_model, update_continual_learning_components
+from .training_loop_fixed import train_model, update_continual_learning_components
 from .parser import parse_train_args
 from continual.label_embedding import (
     build_global_label_mapping, create_label_groups, get_label_text_mapping, generate_label_embeddings, GlobalLabelEmbedding
@@ -38,6 +38,8 @@ from continual.moe_adapters.freeze_topk_experts import freeze_topk_experts
 from continual.metrics import ContinualMetrics
 from utils.logging import setup_logger
 from utils.ensureFileExists import ensure_directory_exists
+from visualize.feature_clustering import visualize_task_after_training, visualize_all_tasks_evolution
+from visualize.feature_clustering_enhanced import visualize_task_enhanced
 import json
 import argparse
 
@@ -45,6 +47,13 @@ import argparse
 def train(args, logger, all_tasks=[]):
     """主训练函数"""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # 提取配置文件名（用于可视化文件命名，避免不同配置互相覆盖）
+    config_name = None
+    if hasattr(args, 'task_config_file') and args.task_config_file:
+        from pathlib import Path
+        config_name = Path(args.task_config_file).stem  # 提取文件名（不含路径和扩展名）
+        logger.info(f"配置文件名: {config_name}")
     
     # 确保目录存在
     ensure_directory_exists(args.train_info_json)
@@ -122,34 +131,64 @@ def train(args, logger, all_tasks=[]):
     logger.info("Creating model")
     full_model = create_model(args, device, label_embedding_manager, logger)
     
-    # ========== 3.5) 为所有任务创建模型头 ==========
-    if all_tasks is not None:
-        if not args.tam_cl:
-            for task in all_tasks:
-                session_name = task['session_name']
-                task_name = task['task_name']
-                if session_name in full_model.task_heads:
-                    continue
+    # ========== 3.5) 只为历史任务创建模型头（延迟创建模式） ==========
+    # 注意：不再为未来任务预创建head，只在需要时创建
+    if all_tasks is not None and not args.tam_cl:
+        # 只为已经学习过的任务加载head（从train_info中获取）
+        learned_sessions = set(s['session_name'] for s in train_info.get('sessions', []))
+        logger.info(f"Loading heads for {len(learned_sessions)} previously learned sessions")
+        
+        for task in all_tasks:
+            session_name = task['session_name']
+            task_name = task['task_name']
+            
+            # 只处理历史任务
+            if session_name not in learned_sessions:
+                continue
+            
+            # 如果head已存在，跳过
+            if full_model.head_manager.has_head(session_name):
+                logger.debug(f"Head for {session_name} already exists, skipping")
+                continue
+            
+            try:
                 task_args = argparse.Namespace(**task)
-                # 选择 head 构造函数
-                if getattr(task_args, 'use_label_embedding', False):
-                    from models.task_heads.get_head_new import get_head
-                else:
-                    from models.task_heads.get_head import get_head
-                label_emb = label_embedding_manager.get_embedding() if label_embedding_manager else None
-                # 选择 base_model
-                if hasattr(full_model, 'base_model'):
-                    base_model_for_head = full_model.base_model
-                    if hasattr(base_model_for_head, 'base_model'):
-                        base_model_for_head = base_model_for_head.base_model
-                else:
-                    base_model_for_head = None
-                head = get_head(task_name, base_model_for_head, task_args, label_emb=label_emb)
-                full_model.add_task_head(session_name, task_name, head, task_args)
-            logger.info(f"All task heads created: {list(full_model.task_heads.keys())}")
+                use_label_embedding = getattr(task_args, 'use_label_embedding', False)
+                
+                # 使用TaskHeadManager创建head
+                logger.info(f"Creating head for historical task: {session_name} ({task_name})")
+                head = full_model.head_manager.create_and_register_head(
+                    session_name, task_name, task_args, use_label_embedding
+                )
+                
+                if head is None:
+                    logger.warning(f"Failed to create head for {session_name}")
+                    
+            except Exception as e:
+                logger.warning(f"Error creating head for {session_name}: {e}")
+                continue
+        
+        logger.info(f"Historical task heads loaded: {full_model.head_manager.get_head_count()}")
+    elif args.tam_cl:
+        logger.info("TAM-CL: Using task-specific adapters instead of separate heads")
+    
+    # ========== 3.6) MoE-Adapters: 为新任务添加专家 ==========
+    if args.moe_adapters:
+        logger.info("MoE-Adapters: Adding new expert for current task")
+        # 检查是否是第一个任务
+        is_first_task = len(train_info.get('sessions', [])) == 0
+        
+        if is_first_task:
+            logger.info("  First task: Expert already created during model initialization")
         else:
-            # TAM‑CL 不需要为历史任务显式创建 head，这里可以打印提示或忽略
-            logger.info("TAM‑CL: skipping add_task_head for all tasks.")
+            logger.info(f"  Task {len(train_info['sessions']) + 1}: Calling start_new_task() to add new expert")
+            # 调用MoeAdapterWrapper的start_new_task方法
+            if hasattr(full_model.base_model, 'start_new_task'):
+                full_model.base_model.start_new_task()
+                logger.info("  ✓ New expert added and old experts frozen")
+            else:
+                logger.warning("  ✗ base_model does not have start_new_task method!")
+    
     # ========== 4) 创建持续学习组件 ==========
     logger.info("Creating continual learning components")
     ewc, fisher_selector, replay_memory, lwf, si, mas, gem, pnn = create_continual_learning_components(
@@ -210,7 +249,7 @@ def train(args, logger, all_tasks=[]):
     session_info = create_session_info(args)
     session_info = update_continual_learning_components(
         full_model, train_loader, device, args,
-        ewc, fisher_selector, si, gem, session_info, logger
+        ewc, fisher_selector, si, mas, gem, session_info, logger
     )
     if args.moe_adapters and hasattr(full_model.base_model, 'text_adapters'):
     # 假设需要冻结每层一个专家，可用 args.freeze_topk_experts 参数配置
@@ -218,18 +257,33 @@ def train(args, logger, all_tasks=[]):
         freeze_topk_experts(full_model, freeze_topk)
     # ========== 10) 评估和更新训练信息 ==========
     logger.info("Evaluating model")
-    # 评估当前任务
-    current_metrics = train_result["final_test_metrics"]
-    logger.info(f"Current task metrics: {current_metrics['acc']}")
+    # 评估当前任务（使用DEV集作为主要指标，TEST集仅用于记录）
+    current_dev_metrics = train_result["final_dev_metrics"]
+    current_test_metrics = train_result["final_test_metrics"]
+    logger.info(f"Current task DEV metrics: {current_dev_metrics['acc']:.4f}")
+    logger.info(f"Current task TEST metrics (reference only): {current_test_metrics['acc']:.4f}")
     
-    # ========== 10.5) 0样本检测后续任务 ==========
+    # ========== 10.5) 0样本检测后续任务（使用DEV集，不使用TEST集） ==========
     zero_shot_metrics = {}
     if future_tasks:
-        logger.info("Performing zero-shot evaluation on future tasks...")
+        logger.info("Performing zero-shot evaluation on future tasks (using DEV set)...")
+        logger.info("⚠️  IMPORTANT: Creating temporary task heads with random weights for zero-shot evaluation")
+        logger.info("   (Different tasks have different label spaces, cannot use current task's head!)")
+        
+        # ✅ 修复完成：DEQA现在与框架完全兼容
+        # DEQA使用：DEQA专家融合特征 + TaskHead输出logits
+        # 普通模型使用：BaseModel特征 + TaskHead输出logits
+        # 两者都使用相同的head_manager机制！
+        
+        from models.deqa_expert_model import DEQAMultimodalModel
+        is_deqa = isinstance(full_model, DEQAMultimodalModel)
+        if is_deqa:
+            logger.info("   (DEQA模型: 使用DEQA专家融合特征 + 临时随机head)")
+        
         for future_task in future_tasks:
             session_name = future_task['session_name']
             task_name = future_task['task_name']
-            logger.info(f"Evaluating zero-shot performance on session: {session_name} (task: {task_name})")
+            logger.info(f"Zero-shot evaluation on: {session_name} (task: {task_name})")
             
             try:
                 # 创建未来任务的参数对象
@@ -237,36 +291,69 @@ def train(args, logger, all_tasks=[]):
                 future_args.task_name = task_name
                 future_args.session_name = session_name
                 
-                # 对于0样本检测，不使用特定的session_name，而是使用当前模型的默认头
-                # 或者创建一个临时的任务头
-                if hasattr(full_model, 'set_active_head'):
-                    # 尝试使用当前任务的session_name作为默认头
-                    try:
-                        full_model.set_active_head(session_name)
-                    except:
-                        # 如果失败，不设置活动头，使用默认行为
-                        logger.info(f"Using default head for zero-shot evaluation on {session_name}")
+                # 🔑 关键：为未来任务临时创建一个随机初始化的head
+                # 原因：不同任务的标签空间不同！
+                # 例如：MASC的0=NEG，但MATE的0=O，含义完全不同
+                logger.info(f"  Step 1: Creating temporary random head for {session_name}")
+                logger.info(f"          Task: {task_name}, Labels: {future_args.num_labels}")
                 
-                # 为CLAP4CLIP模型设置当前任务
-                if hasattr(full_model, 'set_current_task'):
-                    try:
-                        full_model.set_current_task(args.session_name)
-                    except:
-                        logger.info(f"Using default task for zero-shot evaluation on {session_name}")
+                # 检查是否已经存在这个head
+                head_exists = full_model.head_manager.has_head(session_name)
                 
-                # 0样本评估
+                if not head_exists:
+                    # 创建临时head（随机初始化）
+                    # ✓ 对于DEQA：创建DEQA专家集成 + 临时head
+                    # ✓ 对于普通模型：仅创建临时head
+                    use_label_embedding = getattr(future_args, 'use_label_embedding', False)
+                    
+                    if is_deqa:
+                        # DEQA需要先添加任务（创建专家）
+                        full_model.add_task(task_name, session_name, future_args.num_labels, future_args)
+                    else:
+                        # 普通模型只需创建head
+                        temp_head = full_model.head_manager.create_and_register_head(
+                            session_name, task_name, future_args, use_label_embedding
+                        )
+                        if temp_head is None:
+                            logger.warning(f"  ✗ Failed to create temporary head for {session_name}")
+                            zero_shot_metrics[session_name] = {"acc": 0.0, "micro_prec": 0.0, "micro_recall": 0.0, "micro_f1": 0.0}
+                            continue
+                    
+                    logger.info(f"  ✓ Temporary head created (random weights)")
+                else:
+                    logger.info(f"  ✓ Head already exists for {session_name}")
+                
+                # 设置活动head为未来任务的head
+                logger.info(f"  Step 2: Setting active head to {session_name}")
+                full_model.set_active_head(session_name, strict=True)
+                
+                # 0样本评估（使用DEV集，不是TEST集）
+                # 此时：
+                # - 普通模型: 训练好的base_model + 随机head ✓
+                # - DEQA: 训练好的DEQA专家融合 + 随机head ✓
+                logger.info(f"  Step 3: Evaluating with trained features + random head")
                 try:
-                    zero_shot_acc = evaluate_single_task(full_model, task_name, "test", device, future_args)
+                    zero_shot_acc = evaluate_single_task(full_model, task_name, "dev", device, future_args)
                     zero_shot_metrics[session_name] = zero_shot_acc
-                    logger.info(f"Zero-shot accuracy on {session_name}: {zero_shot_acc['acc']:.4f}")
+                    logger.info(f"  ✓ Zero-shot DEV accuracy on {session_name}: {zero_shot_acc['acc']:.4f}")
                 except Exception as e:
-                    logger.warning(f"Failed to evaluate zero-shot performance on {session_name}: {e}")
-                    # 如果评估失败，记录一个默认值
+                    logger.warning(f"  ✗ Failed zero-shot evaluation on {session_name}: {e}")
                     zero_shot_metrics[session_name] = {"acc": 0.0, "micro_prec": 0.0, "micro_recall": 0.0, "micro_f1": 0.0}
-                    logger.info(f"Zero-shot accuracy on {session_name}: 0.0000 (fallback)")
+                    logger.info(f"  Zero-shot DEV accuracy on {session_name}: 0.0000 (fallback)")
+                
+                # 🔑 重要：评估完后删除临时head（节省内存）
+                if not head_exists:
+                    logger.info(f"  Step 4: Removing temporary head to save memory")
+                    full_model.head_manager.remove_head(session_name)
+                    if is_deqa:
+                        # DEQA还需要删除专家
+                        del full_model.deqa_cl.task_ensembles[session_name]
+                    logger.info(f"  ✓ Temporary components removed")
                 
             except Exception as e:
-                logger.warning(f"Failed to evaluate zero-shot performance on {session_name}: {str(e)}")
+                logger.warning(f"  ✗ Error in zero-shot evaluation for {session_name}: {str(e)}")
+                import traceback
+                logger.debug(traceback.format_exc())
                 zero_shot_metrics[session_name] = None
         
         # # 将0样本指标添加到session_info
@@ -276,8 +363,11 @@ def train(args, logger, all_tasks=[]):
     session_info["details"].update({
         "epoch_losses": train_result["epoch_losses"],
         "dev_metrics_history": train_result["dev_metrics_history"],
-        "final_dev_metrics": train_result["final_dev_metrics"],
-        "final_test_metrics": train_result["final_test_metrics"]
+        "final_dev_metrics": train_result["final_dev_metrics"],  # 用于模型选择和early stopping
+        "final_test_metrics": train_result["final_test_metrics"],  # 仅用于最终报告
+        "dev_used_for_decisions": True,  # 标记使用DEV集进行训练决策
+        "test_for_reference_only": True,  # 标记TEST集仅供最终参考
+        "zero_shot_metrics": zero_shot_metrics if zero_shot_metrics else {}  # 0样本检测结果（基于DEV）
     })
     
     # 获取当前任务的索引（基于已学习的任务数量）
@@ -290,19 +380,20 @@ def train(args, logger, all_tasks=[]):
     # 构建性能列表：包含所有已学习任务的准确率
     performance_list = []
     
-    # 如果有之前学习的任务，需要评估所有任务
+    # 如果有之前学习的任务，需要评估所有任务（使用TEST集进行最终评估）
     if old_sessions_count > 0:
         logger.info(f"Previous sessions: {[s.get('session_name', 'unknown') for s in train_info['sessions']]}")
-        all_metrics = evaluate_all_learned_tasks(full_model, train_info["sessions"], device, train_info)
-        logger.info(f"All tasks metrics: {all_metrics}")
-        logger.info(f"Current task metrics: {current_metrics['acc']}")
-        # 将当前任务的准确率添加到列表中
-        performance_list = all_metrics + [current_metrics["acc"]]
-        logger.info(f"Final performance list: {performance_list}")
+        # 评估所有历史任务（使用TEST集）
+        all_test_metrics = evaluate_all_learned_tasks(full_model, train_info["sessions"], device, train_info)
+        logger.info(f"All historical tasks TEST metrics: {all_test_metrics}")
+        logger.info(f"Current task TEST metrics: {current_test_metrics['acc']:.4f}")
+        # 将当前任务的准确率添加到列表中（使用TEST集指标）
+        performance_list = all_test_metrics + [current_test_metrics["acc"]]
+        logger.info(f"Final performance list (TEST): {performance_list}")
     else:
-        # 第一个任务，只有当前任务的准确率
-        performance_list = [current_metrics["acc"]]
-        logger.info(f"First task performance list: {performance_list}")
+        # 第一个任务，只有当前任务的准确率（使用TEST集指标）
+        performance_list = [current_test_metrics["acc"]]
+        logger.info(f"First task performance list (TEST): {performance_list}")
     
     # 将0样本指标传递给准确率矩阵
     cm.update_acc_matrix(task_idx, performance_list, zero_shot_metrics)
@@ -340,6 +431,67 @@ def train(args, logger, all_tasks=[]):
         "best_metrics": train_result["best_metrics"],
         "continual_metrics": final_metrics
     }
+    
+    # ========== 12.5) 特征聚类可视化 ==========
+    if getattr(args, 'enable_feature_visualization', True):  # 默认开启可视化
+        try:
+            logger.info("="*60)
+            logger.info("📊 开始特征聚类可视化...")
+            logger.info("="*60)
+            
+            # 创建可视化保存目录
+            vis_dir = os.path.join(os.path.dirname(args.output_model_path), 'feature_clustering')
+            os.makedirs(vis_dir, exist_ok=True)
+            
+            # 检查是否使用增强版可视化（真实vs预测对比）
+            show_predictions = getattr(args, 'vis_show_predictions', True)  # 默认显示预测对比
+            
+            if show_predictions:
+                # 使用增强版：生成真实标签图 + 预测对比图
+                logger.info("📊 使用增强版可视化（包含预测对比图）")
+                visualize_task_enhanced(
+                    model=full_model,
+                    task_name=args.task_name,
+                    session_name=args.session_name,
+                    device=device,
+                    args=args,
+                    save_dir=vis_dir,
+                    split='dev',  # 使用验证集
+                    max_samples=getattr(args, 'vis_max_samples', 2000),
+                    show_predictions=True,  # 生成预测对比图
+                    config_name=config_name  # 传递配置文件名，避免覆盖
+                )
+            else:
+                # 使用基础版：仅生成真实标签图
+                logger.info("📊 使用基础版可视化（仅真实标签）")
+                visualize_task_after_training(
+                    model=full_model,
+                    task_name=args.task_name,
+                    session_name=args.session_name,
+                    device=device,
+                    args=args,
+                    config_name=config_name,  # 传递配置文件名
+                    save_dir=vis_dir,
+                    split='dev',  # 使用验证集
+                    max_samples=getattr(args, 'vis_max_samples', 2000),
+                    use_both_methods=getattr(args, 'vis_use_both', False)
+                )
+            
+            # 如果已经学习了多个任务，绘制演进图
+            if len(train_info["sessions"]) >= 2:
+                logger.info("📊 绘制持续学习演进图（所有已学习任务）...")
+                visualize_all_tasks_evolution(
+                    save_dir=vis_dir,
+                    split='dev',
+                    method='tsne'
+                )
+            
+            logger.info("✓ 特征聚类可视化完成\n")
+            
+        except Exception as e:
+            logger.warning(f"⚠️  特征可视化失败（不影响训练）: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
     
     # ========== 13) 保存模型 ==========
     logger.info(f"Saving model to: {args.output_model_path}")

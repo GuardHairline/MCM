@@ -24,10 +24,11 @@ def evaluate_single_task(model, task_name, split, device, args):
     """
     对指定任务的 {split} (dev/test) 数据集进行评估，返回准确率(%)。
     """
-    # 确保使用正确的任务头
+    # 确保使用正确的任务头（使用非严格模式）
     if hasattr(model, 'set_active_head') and hasattr(args, 'session_name'):
         try:
-            model.set_active_head(args.session_name)
+            # 使用strict=False允许失败时继续
+            model.set_active_head(args.session_name, strict=False)
         except Exception as e:
             # 如果设置活动头失败（比如在0样本检测时），使用默认行为
             logger.warning(f"Failed to set active head for session {args.session_name}: {e}")

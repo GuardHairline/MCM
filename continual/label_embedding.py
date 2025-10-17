@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from typing import Dict, List, Tuple, Optional
 import json
 from transformers import AutoTokenizer, AutoModel
+from .label_config import get_label_manager, UnifiedLabelManager
 
 class GlobalLabelEmbedding(nn.Module):
     """
@@ -157,65 +158,29 @@ class GlobalLabelEmbedding(nn.Module):
 def create_label_groups() -> Dict[str, List[Tuple[str, int]]]:
     """
     根据你的任务标签创建语义分组
+    
+    注意：此函数已废弃，请使用 label_config.get_label_manager().create_label_groups()
+    保留此函数仅为向后兼容
     """
-    return {
-        "O": [  # 非目标标签
-            ("mabsa", 0), ("mate", 0), ("mner", 0)
-        ],
-        "NEG": [  # 负向情感/否定
-            ("mabsa", 1), ("mabsa", 2),  # B-NEG, I-NEG
-            ("masc", 0)   # NEG (映射后)
-        ],
-        "NEU": [  # 中性情感
-            ("mabsa", 3), ("mabsa", 4),  # B-NEU, I-NEU
-            ("masc", 1)   # NEU (映射后)
-        ],
-        "POS": [  # 正向情感/肯定
-            ("mabsa", 5), ("mabsa", 6),  # B-POS, I-POS
-            ("masc", 2)   # POS (映射后)
-        ],
-        "B_ENTITY": [  # 实体开始标签
-            ("mate", 1),      # B
-            ("mner", 1), ("mner", 3), ("mner", 5), ("mner", 7),  # B-PER, B-ORG, B-LOC, B-MISC
-        ],
-        "I_ENTITY": [  # 实体内部标签
-            ("mate", 2),      # I
-            ("mner", 2), ("mner", 4), ("mner", 6), ("mner", 8),  # I-PER, I-ORG, I-LOC, I-MISC
-        ]
-    }
+    return get_label_manager().create_label_groups()
 
 def build_global_label_mapping() -> Dict[Tuple[str, int], int]:
-    task_labels = {
-        "mabsa": [0, 1, 2, 3, 4, 5, 6],
-        "masc": [0, 1, 2],
-        "mate": [0, 1, 2],
-        "mner": [0, 1, 2, 3, 4, 5, 6, 7, 8]
-    }
-    global_idx = 0
-    label2idx = {}
-    for task_name, labels in task_labels.items():
-        for label_id in labels:
-            label2idx[(task_name, label_id)] = global_idx
-            global_idx += 1
-    return label2idx
+    """
+    构建全局标签映射
+    
+    注意：此函数已废弃，请使用 label_config.get_label_manager().get_label2idx()
+    保留此函数仅为向后兼容
+    """
+    return get_label_manager().get_label2idx()
 
 def get_label_text_mapping() -> Dict[Tuple[str, int], str]:
     """
     返回每个 (task, label_id) 的标签语义文本
+    
+    注意：此函数已废弃，请使用 label_config.get_label_manager().get_label_text_mapping()
+    保留此函数仅为向后兼容
     """
-    return {
-        ("mabsa", 0): "outside",
-        ("mabsa", 1): "begin negative", ("mabsa", 2): "inside negative",
-        ("mabsa", 3): "begin neutral", ("mabsa", 4): "inside neutral",
-        ("mabsa", 5): "begin positive", ("mabsa", 6): "inside positive",
-        ("masc", 0): "negative", ("masc", 1): "neutral", ("masc", 2): "positive",
-        ("mate", 0): "outside", ("mate", 1): "begin entity", ("mate", 2): "inside entity",
-        ("mner", 0): "outside",
-        ("mner", 1): "begin person", ("mner", 2): "inside person",
-        ("mner", 3): "begin organization", ("mner", 4): "inside organization",
-        ("mner", 5): "begin location", ("mner", 6): "inside location",
-        ("mner", 7): "begin miscellaneous", ("mner", 8): "inside miscellaneous",
-    }
+    return get_label_manager().get_label_text_mapping()
 
 def generate_label_embeddings(label_texts, emb_dim=768, device="cpu"):
     """

@@ -61,10 +61,10 @@ class ContinualMetrics:
             return None
         row_k = self.acc_matrix[k - 1]
         # 只取前 k 个任务的准确率（对角线及以下）
-        if len(row_k) < k:
-            return None
+        # 边界检查：row_k可能比k短（有zero-shot数据）
+        valid_k = min(k, len(row_k))
         # 过滤掉None值
-        valid_accs = [acc for acc in row_k[:k] if acc is not None]
+        valid_accs = [acc for acc in row_k[:valid_k] if acc is not None]
         if not valid_accs:
             return None
         aa_k = np.mean(valid_accs)
@@ -93,6 +93,9 @@ class ContinualMetrics:
             return None
         fm_list = []
         for j in range(1, k):  # j=1..(k-1)，对应 acc_matrix 列索引 j-1
+            # 边界检查（重要！）
+            if k - 1 >= len(self.acc_matrix) or j - 1 >= len(self.acc_matrix[k - 1]):
+                continue
             a_kj = self.acc_matrix[k - 1][j - 1]  # 当前模型在第 j 个任务上的准确率
             if a_kj is None:
                 continue
@@ -119,6 +122,12 @@ class ContinualMetrics:
             return None
         bwt_list = []
         for j in range(1, k):
+            # 边界检查
+            if k - 1 >= len(self.acc_matrix) or j - 1 >= len(self.acc_matrix[k - 1]):
+                continue
+            if j - 1 >= len(self.acc_matrix) or j - 1 >= len(self.acc_matrix[j - 1]):
+                continue
+            
             a_kj = self.acc_matrix[k - 1][j - 1]  # 学完第 k 个任务后, 第 j 个任务准确率
             a_jj = self.acc_matrix[j - 1][j - 1]  # 学完第 j 个任务后, 第 j 个任务准确率
             if a_kj is not None and a_jj is not None:
@@ -136,13 +145,18 @@ class ContinualMetrics:
             return None
         fwt_list = []
         for j in range(2, k + 1):  # j=2..k，对应任务索引 j-1
-            if j - 1 < len(self.acc_matrix) and j - 1 < len(self.acc_matrix[j - 2]):
-                a_j1_j = self.acc_matrix[j - 2][j - 1]  # 学完第 j-1 个任务后, 第 j 个任务准确率
-                if a_j1_j is not None:
-                    # a_0_j 是随机性能，对于分类任务通常是 1/num_classes
-                    # 这里我们假设平均随机性能为 0.5，实际应用中可以根据具体任务调整
-                    a_0_j = 0.5  # 可以根据任务的具体类别数调整
-                    fwt_list.append(a_j1_j - a_0_j)
+            # 边界检查
+            if j - 2 >= len(self.acc_matrix):
+                continue
+            if j - 1 >= len(self.acc_matrix[j - 2]):
+                continue
+            
+            a_j1_j = self.acc_matrix[j - 2][j - 1]  # 学完第 j-1 个任务后, 第 j 个任务准确率
+            if a_j1_j is not None:
+                # a_0_j 是随机性能，对于分类任务通常是 1/num_classes
+                # 这里我们假设平均随机性能为 0.5，实际应用中可以根据具体任务调整
+                a_0_j = 0.5  # 可以根据任务的具体类别数调整
+                fwt_list.append(a_j1_j - a_0_j)
         if not fwt_list:
             return None
         return float(np.mean(fwt_list))
@@ -154,10 +168,15 @@ class ContinualMetrics:
         """
         if k < 2 or k > len(self.acc_matrix):
             return None
-        if k - 1 < len(self.acc_matrix) and k - 1 < len(self.acc_matrix[k - 2]):
-            acc = self.acc_matrix[k - 2][k - 1]
-            if acc is not None:
-                return float(acc)
+        # 边界检查
+        if k - 2 < 0 or k - 2 >= len(self.acc_matrix):
+            return None
+        if k - 1 >= len(self.acc_matrix[k - 2]):
+            return None
+        
+        acc = self.acc_matrix[k - 2][k - 1]
+        if acc is not None:
+            return float(acc)
         return None
 
 

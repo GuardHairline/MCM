@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from models.base_model import BaseMultimodalModel
 from models.task_heads.get_head import get_head
+
 import copy
 
 class TaskAttentionBlock(nn.Module):
@@ -72,6 +73,9 @@ class TamCLModel(nn.Module):
 
         # 教师模型，用于蒸馏
         self.teacher = None
+        self.task_names = {}   # 新增字典用于记录 session_id 到 task_name 的映射
+        self.sequence_tasks = {"mate", "mner", "mabsa"}
+
 
     def add_task(self, session_id: str, task_name: str, num_labels: int, args):
         """
@@ -87,6 +91,7 @@ class TamCLModel(nn.Module):
         # 2. 任务 head (根据任务类型初始化)
         head = get_head(task_name, self.base_model, args)
         self.task_heads[session_id] = head
+        self.task_names[session_id] = task_name   # 记录任务名称
 
         # 冻结旧任务的 token 与 head，仅保留当前可训练
         for sid, param in self.task_tokens.items():
@@ -115,10 +120,14 @@ class TamCLModel(nn.Module):
         # 5) 分支到任务 head，得到 logits
         # 若 head 是序列标注类型，则输入后续序列，否则输入 token 表示
         head = self.task_heads[session_id]
-        if hasattr(head, 'classifier') and seq_tab.dim() == 3:
-            logits = head(seq_tab[:, 1:, :])
+        task_name = self.task_names.get(session_id, None)
+
+        if task_name in self.sequence_tasks:
+            # 对于 MATE/MNER/MABSA 等 token‑级任务
+            logits = head(seq_tab[:, 1:, :])   # (B, L, H) → (B, L, num_labels)
         else:
-            logits = head(task_feat)
+            # 对于 MASC 等句级任务
+            logits = head(task_feat)           # (B, H) → (B, num_labels)
         return logits, seq, seq_tab
 
     def compute_distillation(self, seq, session_id: str, T: float):

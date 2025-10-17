@@ -5,6 +5,7 @@ from torch.utils.data import Dataset
 from transformers import AutoTokenizer
 from PIL import Image
 import torchvision.transforms as transforms
+from continual.label_config import get_label_manager
 
 class MABSADataset(Dataset):
     """
@@ -114,16 +115,11 @@ class MABSADataset(Dataset):
     def _get_sentiment_label(self, sentiment):
         """
         根据情感值返回对应的 B 和 I 标签。
-        -1 -> B-negative, I-negative
-        0 -> B-neutral, I-neutral
-        1 -> B-positive, I-positive
         """
-        if sentiment == -1:
-            return (1, 2)  # B-negative, I-negative
-        elif sentiment == 0:
-            return (3, 4)  # B-neutral, I-neutral
-        elif sentiment == 1:
-            return (5, 6)  # B-positive, I-positive
+        labels = get_label_manager().get_sentiment_labels("mabsa", sentiment)
+        if labels is None:
+            raise ValueError(f"Invalid sentiment value: {sentiment} for MABSA task")
+        return labels
 
     def _align_labels_with_tokens(self, offsets, char_label):
         """

@@ -2,6 +2,7 @@ import os
 import json
 import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 
 def plot_acc_matrix(acc_matrix, sessions, base_name):
@@ -98,6 +99,125 @@ def plot_final_metrics(sessions, base_name):
     # 保存图片
     plt.savefig(image_path)
     plt.show()
+
+
+def plot_acc_matrix_from_config(config_file_path, train_info_file_path, save_dir="checkpoints/acc_matrix"):
+    """
+    从配置文件和训练信息文件自动绘制acc热力图
+    
+    该函数会：
+    1. 从train_info读取acc_matrix和sessions数据
+    2. 根据config_file_path提取文件名作为图片名称
+    3. 绘制热力图并保存到指定目录
+    4. 打印统计信息和CL指标
+    
+    Args:
+        config_file_path: 配置文件路径（用于提取文件名）
+        train_info_file_path: 训练信息JSON文件路径
+        save_dir: 保存目录，默认为"checkpoints/acc_matrix"
+    
+    Returns:
+        output_file: 保存的图片路径，如果失败则返回None
+    """
+    print("\n" + "="*60)
+    print("📊 开始绘制训练结果热力图...")
+    print("="*60)
+    
+    try:
+        # 检查train_info文件是否存在
+        if not os.path.exists(train_info_file_path):
+            print(f"⚠️  警告: 训练信息文件不存在: {train_info_file_path}")
+            return None
+        
+        # 读取train_info
+        with open(train_info_file_path, 'r', encoding='utf-8') as f:
+            train_info = json.load(f)
+        
+        # 提取acc_matrix和sessions
+        acc_matrix = train_info.get("acc_matrix", [])
+        sessions = train_info.get("sessions", [])
+        
+        if not acc_matrix or not sessions:
+            print("⚠️  警告: train_info中没有acc_matrix或sessions数据")
+            return None
+        
+        # 从配置文件名提取base_name
+        config_name = Path(config_file_path).stem  # 不含路径和扩展名
+        
+        # 创建保存目录
+        os.makedirs(save_dir, exist_ok=True)
+        
+        # 生成文件名
+        output_file = os.path.join(save_dir, f"{config_name}_acc_matrix.png")
+        
+        # 绘制热力图
+        n = len(acc_matrix)
+        matrix = np.full((n, n), np.nan)
+        for i, row in enumerate(acc_matrix):
+            matrix[i, :len(row)] = row
+        
+        plt.figure(figsize=(8, 7))
+        im = plt.imshow(matrix, cmap='viridis', interpolation='nearest', vmin=0, vmax=100)
+        plt.title(f'Accuracy Matrix\n{config_name}', fontsize=14, fontweight='bold')
+        
+        # 设置坐标轴标签
+        session_names = [s["session_name"] for s in sessions][:n]
+        plt.xticks(ticks=np.arange(n), labels=session_names, rotation=45, ha='right')
+        plt.yticks(ticks=np.arange(n), labels=session_names)
+        plt.xlabel('Test Task', fontsize=12)
+        plt.ylabel('Train Task', fontsize=12)
+        
+        # 添加颜色条
+        cbar = plt.colorbar(im, label='Accuracy (%)')
+        
+        # 在每个单元格中标注数值
+        for i in range(n):
+            for j in range(n):
+                if not np.isnan(matrix[i, j]):
+                    # 检查是否有replay标记
+                    replay_sessions = sessions[i].get("details", {}).get("replay_sessions", [])
+                    test_session_name = sessions[j].get("session_name", "")
+                    
+                    if test_session_name in replay_sessions:
+                        text_str = f"{matrix[i, j]:.1f}*"
+                    else:
+                        text_str = f"{matrix[i, j]:.1f}"
+                    
+                    # 根据背景色选择文字颜色
+                    text_color = "white" if matrix[i, j] < 50 else "black"
+                    plt.text(j, i, text_str, ha="center", va="center", 
+                            color=text_color, fontsize=10, fontweight='bold')
+        
+        plt.tight_layout()
+        plt.savefig(output_file, dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # 打印统计信息
+        print(f"✅ 热力图已保存: {output_file}")
+        print(f"   配置文件: {config_file_path}")
+        print(f"   任务数量: {n}")
+        print(f"   平均准确率: {np.nanmean(matrix):.2f}%")
+        
+        # 计算并显示最终指标
+        if "final_metrics" in train_info:
+            final_metrics = train_info["final_metrics"]
+            print(f"\n📈 最终持续学习指标:")
+            print(f"   AA (Average Accuracy): {final_metrics.get('AA', 0):.2f}%")
+            print(f"   FM (Final Metric): {final_metrics.get('FM', 0):.2f}%")
+            print(f"   BWT (Backward Transfer): {final_metrics.get('BWT', 0):.2f}%")
+            if 'FWT' in final_metrics:
+                print(f"   FWT (Forward Transfer): {final_metrics.get('FWT', 0):.2f}%")
+        
+        print("="*60)
+        return output_file
+        
+    except Exception as e:
+        print(f"❌ 绘图失败: {e}")
+        import traceback
+        traceback.print_exc()
+        print("="*60)
+        return None
+
 
 def main():
     os.makedirs("checkpoints", exist_ok=True)

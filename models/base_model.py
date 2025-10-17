@@ -160,3 +160,19 @@ class BaseMultimodalModel(nn.Module):
             else:
                 fused_cls = text_cls + img_feat
                 return fused_cls
+        
+        else:
+            # Fallback: 使用concat策略（防止返回None）
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Unknown fusion_strategy '{self.fusion_strategy}', falling back to 'concat'")
+            
+            if return_sequence:
+                expanded_img = img_feat.unsqueeze(1).repeat(1, text_sequence.size(1), 1)
+                fused_seq = torch.cat([text_sequence, expanded_img], dim=-1)
+                fused_seq = self.fc_concat(fused_seq)
+                return fused_seq
+            else:
+                fused_cls = torch.cat([text_cls, img_feat], dim=-1)
+                fused_cls = self.fc_concat(fused_cls)
+                return fused_cls

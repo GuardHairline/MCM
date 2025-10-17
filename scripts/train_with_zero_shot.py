@@ -183,6 +183,14 @@ def main():
     print("All tasks completed successfully!")
     print(f"Final model: {pretrained_model_path}")
     print(f"Training info: {global_params['train_info_json']}")
+    
+    # ========== 自动绘制acc热力图 ==========
+    from utils.plot import plot_acc_matrix_from_config
+    plot_acc_matrix_from_config(
+        config_file_path=args.config,
+        train_info_file_path=global_params['train_info_json'],
+        save_dir="checkpoints/acc_matrix"
+    )
 
 
 if __name__ == "__main__":

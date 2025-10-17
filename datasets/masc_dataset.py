@@ -5,6 +5,7 @@ from transformers import AutoTokenizer
 from PIL import Image
 import os
 import torchvision.transforms as transforms
+from continual.label_config import get_label_manager
 
 
 class MASCDataset(Dataset):
@@ -96,10 +97,12 @@ class MASCDataset(Dataset):
         # 3) 读取并处理图像
         image_tensor = self._load_image(image_path)
 
-        # 4) 返回句级情感标签(三分类): sentiment => { -1 -> 0, 0 -> 1, 1 -> 2 } (可选做一个偏移映射)
-        #    或者直接保留 -1,0,1, 训练时让 head 输出维度=3 并自己写个 label->[0,1,2] 的映射也行
-        label_map = {-1: 0, 0: 1, 1: 2}
-        label_id = label_map[sentiment]
+        # 4) 返回句级情感标签(三分类)
+        # 使用统一的标签管理器获取标签映射
+        sentiment_labels = get_label_manager().get_sentiment_labels("masc", sentiment)
+        if sentiment_labels is None:
+            raise ValueError(f"Invalid sentiment value: {sentiment} for MASC task")
+        label_id = sentiment_labels[0]  # 句子级任务只需要一个标签
 
         out_item = {
             "input_ids": torch.tensor(tokenized_input["input_ids"], dtype=torch.long),

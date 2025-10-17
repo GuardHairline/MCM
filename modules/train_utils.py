@@ -9,37 +9,43 @@ from torch.utils.data import DataLoader
 from typing import Dict, Any, Optional, Tuple
 
 from models.base_model import BaseMultimodalModel
-from continual.ewc import MultiTaskEWC
+from continual.ewc_fixed import MultiTaskEWC
 from continual.lwf import LwFDistiller
-from continual.si import SynapticIntelligence
-from continual.mas import MASRegularizer
+from continual.si_fixed import SynapticIntelligence
+from continual.mas_fixed import MASRegularizer
 from continual.pnn import PNNManager
-from continual.gem import GEMManager
+from continual.gem_fixed import GEMManager
 from continual.tam_cl import TamCLModel
 from continual.moe_adapters.moe_model_wrapper import MoeAdapterWrapper
 from continual.moe_adapters.ddas_router import DDASRouter
 from continual.clap4clip.clap4clip import CLAP4CLIP
 from continual.label_embedding_manager import LabelEmbeddingManager
 from continual.metrics import ContinualMetrics
-from continual.experience_replay import ExperienceReplayMemory, make_dynamic_replay_condition
+from continual.experience_replay_fixed import ExperienceReplayMemory, make_dynamic_replay_condition
 from datasets.get_dataset import get_dataset
 import argparse
 
 
 class Full_Model(nn.Module):
-    def __init__(self, base_model, head, dropout_prob=0.1):
+    def __init__(self, base_model, head, dropout_prob=0.1, label_embedding_manager=None, device='cuda'):
         super().__init__()
         self.base_model = base_model
         self.head = head
         self.dropout = nn.Dropout(dropout_prob)
-        # 存储所有任务的模型头
-        self.task_heads = {}
+        
+        # 使用新的任务头管理器
+        from models.task_head_manager import TaskHeadManager
+        self.head_manager = TaskHeadManager(base_model, label_embedding_manager, device)
+        
+        # 保留旧接口的兼容性
+        self.task_heads = {}  # 向后兼容
         self.current_session = None
 
     def forward(self, input_ids, attention_mask, token_type_ids, image_tensor):
-        # 检查当前任务是否为序列标注任务
+        # 使用label_config判断任务类型
+        from continual.label_config import get_label_manager
         current_task = self.get_current_task_name()
-        is_seq_task = current_task in ["mate", "mner", "mabsa"]
+        is_seq_task = get_label_manager().is_token_level_task(current_task) if current_task else False
         
         # 根据任务类型决定是否返回序列特征
         fused_feat = self.base_model(input_ids, attention_mask, token_type_ids, image_tensor, return_sequence=is_seq_task)
@@ -48,93 +54,80 @@ class Full_Model(nn.Module):
         return logits
     
     def add_task_head(self, session_name: str, task_name: str, head, args):
-        """添加任务特定的模型头"""
+        """添加任务特定的模型头（新版：使用TaskHeadManager）"""
+        # 使用新的管理器
+        self.head_manager.register_head(session_name, task_name, head, args)
+        
+        # 保持向后兼容
         self.task_heads[session_name] = {
             'head': head,
             'task_name': task_name,
             'args': args
         }
     
-    def set_active_head(self, session_name: str):
-        """设置活动模型头"""
+    def set_active_head(self, session_name: str, strict: bool = True):
+        """设置活动模型头（新版：使用TaskHeadManager）"""
+        # 使用新的管理器
+        if self.head_manager.set_active_head(session_name, strict=strict):
+            self.head = self.head_manager.get_current_head()
+            self.current_session = session_name
+            return True
+        
+        # 如果新管理器失败，尝试旧方式（向后兼容）
         if session_name in self.task_heads:
             new_head = self.task_heads[session_name]['head']
-            # 确保新的模型头在正确的设备上
             if hasattr(self, 'base_model'):
                 device = next(self.base_model.parameters()).device
                 new_head = new_head.to(device)
             self.head = new_head
             self.current_session = session_name
-        else:
-            raise ValueError(f"Session {session_name} not found in task_heads")
+            return True
+        
+        if strict:
+            raise ValueError(f"Session {session_name} not found")
+        return False
     
     def get_current_task_name(self):
         """获取当前任务名称"""
+        # 优先使用新管理器
+        task_name = self.head_manager.get_task_name(self.current_session)
+        if task_name:
+            return task_name
+        
+        # 回退到旧方式
         if self.current_session and self.current_session in self.task_heads:
             return self.task_heads[self.current_session]['task_name']
         return None
     
     def save_task_heads(self, save_path: str):
-        """保存所有任务的模型头"""
-        task_heads_state = {}
-        for session_name, task_info in self.task_heads.items():
-            task_heads_state[session_name] = {
-                'task_name': task_info['task_name'],
-                'args': task_info['args'],
-                'head_state_dict': task_info['head'].state_dict()
-            }
-        
-        torch.save(task_heads_state, save_path)
+        """保存所有任务的模型头（新版：使用TaskHeadManager）"""
+        return self.head_manager.save_heads(save_path)
     
     def load_task_heads(self, load_path: str, device: str, label_embedding_manager=None, logger=None):
         """
-        加载历史任务的模型头
+        加载历史任务的模型头（新版：使用TaskHeadManager）
         """
-        if not os.path.exists(load_path):
-            if logger:
-                logger.warning(f"Task heads file not found: {load_path}")
-            return
-        # 兼容PyTorch 2.6+安全机制，允许argparse.Namespace反序列化
-        task_heads_state = torch.load(load_path, map_location=device)
+        # 更新管理器的配置
+        if label_embedding_manager:
+            self.head_manager.label_embedding_manager = label_embedding_manager
         
-        for session_name, task_info in task_heads_state.items():
-            # 重新创建模型头
-            try:
-                if hasattr(task_info['args'], 'use_label_embedding') and task_info['args'].use_label_embedding:
-                    from models.task_heads.get_head_new import get_head
-                else:
-                    from models.task_heads.get_head import get_head
-                
-                # 获取标签嵌入
-                label_emb = None
-                if label_embedding_manager:
-                    label_emb = label_embedding_manager.get_embedding()
-                
-                # 为每个历史任务创建独立的模型头
-                # 对于MOE模型，需要使用base_model.base_model来获取原始的BaseMultimodalModel
-                if hasattr(self.base_model, 'base_model'):
-                    # MOE模型的情况
-                    base_model_for_head = self.base_model.base_model
-                else:
-                    # 普通模型的情况
-                    base_model_for_head = self.base_model
-                
-                head = get_head(task_info['task_name'], base_model_for_head, task_info['args'], label_emb=label_emb)
-                head.load_state_dict(task_info['head_state_dict'])
-                
-                # 确保模型头在正确的设备上
-                head = head.to(device)
-                
-                self.task_heads[session_name] = {
-                    'head': head,
-                    'task_name': task_info['task_name'],
-                    'args': task_info['args']
-                }
-                
-                logger.info(f"Loaded task head for session {session_name} ({task_info['task_name']})")
-            except Exception as e:
-                logger.warning(f"Warning: Failed to load task head for session {session_name}: {e}")
-                continue
+        # 使用新管理器加载
+        loaded_count = self.head_manager.load_heads(load_path, strict=False)
+        
+        if logger:
+            logger.info(f"Loaded {loaded_count} task heads using TaskHeadManager")
+        
+        # 同步到旧接口（向后兼容）
+        for session_name in self.head_manager.get_all_sessions():
+            head = self.head_manager.get_head(session_name)
+            task_name = self.head_manager.get_task_name(session_name)
+            head_info = self.head_manager._task_heads[session_name]
+            
+            self.task_heads[session_name] = {
+                'head': head,
+                'task_name': task_name,
+                'args': head_info.args
+            }
 
 
 def load_train_info(train_info_path: str) -> Dict[str, Any]:
@@ -202,6 +195,39 @@ def create_model(args, device: str, label_embedding_manager: Optional[LabelEmbed
             model.load_state_dict(checkpoint, strict=False)
         
         return model.to(device)
+    
+    # DEQA模型
+    if hasattr(args, 'deqa') and args.deqa:
+        from models.deqa_expert_model import DEQAMultimodalModel
+        
+        model = DEQAMultimodalModel(
+            text_model_name=args.text_model_name,
+            image_model_name=args.image_model_name,
+            fusion_strategy=args.fusion_strategy,
+            num_heads=args.num_heads,
+            mode=args.mode,
+            hidden_dim=args.hidden_dim,
+            dropout_prob=args.dropout_prob,
+            use_description=getattr(args, 'deqa_use_description', True),
+            use_clip=getattr(args, 'deqa_use_clip', True),
+            ensemble_method=getattr(args, 'deqa_ensemble_method', 'weighted'),
+            freeze_old_experts=getattr(args, 'deqa_freeze_old_experts', True),
+            distill_weight=getattr(args, 'deqa_distill_weight', 0.5)
+        )
+        
+        # 加载预训练模型
+        if args.pretrained_model_path and os.path.exists(args.pretrained_model_path):
+            logger.info(f"Loading pretrained DEQA model from: {args.pretrained_model_path}")
+            checkpoint = torch.load(args.pretrained_model_path, map_location=device)
+            model.load_state_dict(checkpoint, strict=False)
+        else:
+            logger.info("No pretrained DEQA model loaded.")
+        
+        # 添加当前任务
+        model.add_task(args.task_name, args.session_name, args.num_labels, args)
+        
+        return model.to(device)
+    
     if args.tam_cl:
         model = TamCLModel(
             text_model_name=args.text_model_name,
@@ -237,7 +263,8 @@ def create_model(args, device: str, label_embedding_manager: Optional[LabelEmbed
         
         head = get_head(args.task_name, moe_model.base_model, args, label_emb=label_emb)
         
-        full_model = Full_Model(moe_model, head, dropout_prob=args.dropout_prob).to(device)
+        full_model = Full_Model(moe_model, head, dropout_prob=args.dropout_prob,
+                               label_embedding_manager=label_embedding_manager, device=device).to(device)
         
         # 添加当前任务的模型头（MOE模型也需要任务头管理）
         full_model.add_task_head(args.session_name, args.task_name, head, args)
@@ -274,6 +301,10 @@ def create_model(args, device: str, label_embedding_manager: Optional[LabelEmbed
             # 加载基础模型参数
             if base_model_params:
                 moe_model.load_state_dict(base_model_params, strict=False)
+                # 重要：加载后重新设置mode
+                if hasattr(moe_model, 'base_model') and hasattr(moe_model.base_model, 'mode'):
+                    moe_model.base_model.mode = args.mode
+                    logger.info(f"Reset moe_model.base_model.mode to: {args.mode}")
             
             # 加载当前任务的模型头参数（只加载兼容的参数）
             if task_head_params:
@@ -374,7 +405,8 @@ def create_model(args, device: str, label_embedding_manager: Optional[LabelEmbed
         # 创建当前任务的模型头
         head = get_head(args.task_name, base_model, args, label_emb=label_emb)
         
-        full_model = Full_Model(base_model, head, dropout_prob=args.dropout_prob).to(device)
+        full_model = Full_Model(base_model, head, dropout_prob=args.dropout_prob, 
+                               label_embedding_manager=label_embedding_manager, device=device).to(device)
         
         # 添加当前任务的模型头
         full_model.add_task_head(args.session_name, args.task_name, head, args)
@@ -403,6 +435,10 @@ def create_model(args, device: str, label_embedding_manager: Optional[LabelEmbed
             # 加载基础模型参数
             if base_model_params:
                 base_model.load_state_dict(base_model_params, strict=False)
+                # 重要：加载后重新设置mode（避免使用旧任务的mode）
+                if hasattr(base_model, 'mode'):
+                    base_model.mode = args.mode
+                    logger.info(f"Reset base_model.mode to: {args.mode}")
             
             # 加载当前任务的模型头参数（只加载兼容的参数）
             if task_head_params:
@@ -594,20 +630,19 @@ def save_train_info(train_info: Dict[str, Any], train_info_path: str, logger=Non
 
 
 def get_class_weights(task_name: str, device: str) -> Optional[torch.Tensor]:
-    """获取类别权重"""
-    if task_name == "mate":
-        return torch.tensor([1.0, 15.0, 15.0], device=device)
-    elif task_name == "mner":
-        return torch.tensor([0.1, 164.0, 10.0, 270.0, 27.0, 340.0, 16.0, 360.0, 2.0], device=device)
-    elif task_name == "mabsa":
-        return torch.tensor([1.0, 3700.0, 234.0, 480.0, 34.0, 786.0, 69.0], device=device)
-    else:
-        return None
+    """
+    获取类别权重
+    """
+    from continual.label_config import get_label_manager
+    return get_label_manager().get_class_weights(task_name, device)
 
 
 def is_sequence_task(task_name: str) -> bool:
-    """判断是否为序列标注任务"""
-    return task_name in ["mate", "mner", "mabsa"]
+    """
+    判断是否为序列标注任务
+    """
+    from continual.label_config import get_label_manager
+    return get_label_manager().is_token_level_task(task_name)
 
 
 def create_optimizer(model, args):

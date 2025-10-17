@@ -159,6 +159,23 @@ def create_train_parser() -> argparse.ArgumentParser:
                     help="Weight α for intermediate KD loss in TAM-CL")
     parser.add_argument("--replay_frequency", type=int, default=0,
                         help="How many steps between experience replay batches (0 = no replay)")
+    
+    # DEQA (Descriptions Enhanced Question-Answering Framework)
+    parser.add_argument("--deqa", type=int, default=0,
+                       help="Whether to use DEQA (Descriptions Enhanced QA Framework)")
+    parser.add_argument("--description_file", type=str, default=None,
+                       help="Path to image description file (.jsonl or .json)")
+    parser.add_argument("--deqa_use_description", action="store_true", default=True,
+                       help="Use description expert in DEQA")
+    parser.add_argument("--deqa_use_clip", action="store_true", default=True,
+                       help="Use CLIP expert in DEQA")
+    parser.add_argument("--deqa_ensemble_method", type=str, default='weighted',
+                       choices=['vote', 'weighted', 'learned'],
+                       help="Ensemble method for DEQA experts")
+    parser.add_argument("--deqa_freeze_old_experts", action="store_true", default=True,
+                       help="Freeze old task experts in DEQA")
+    parser.add_argument("--deqa_distill_weight", type=float, default=0.5,
+                       help="Distillation loss weight for DEQA")
 
     
     # MoE Adapters
@@ -171,6 +188,8 @@ def create_train_parser() -> argparse.ArgumentParser:
     parser.add_argument("--moe_expert_type", type=str, default="lora",
                     choices=["lora", "adapter"],
                     help="Expert type: LoRA or simple Adapter")
+    parser.add_argument("--moe_balance_coef", type=float, default=0.01,
+                       help="Coefficient for MoE load balancing loss")
     parser.add_argument("--lora_rank", type=int, default=8,
                         help="Rank of LoRA experts")
     parser.add_argument("--freeze_topk_experts", type=int, default=1,
@@ -232,11 +251,11 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError(f"Invalid mode: {args.mode}. Must be one of {valid_modes}")
     
     # 检查持续学习策略冲突
-    cl_methods = [args.ewc, args.replay, args.lwf, args.si, args.mas, args.gem, args.pnn, args.tam_cl, args.moe_adapters, args.clap4clip, args.mymethod]
+    cl_methods = [args.ewc, args.replay, args.lwf, args.si, args.mas, args.gem, args.pnn, args.tam_cl, args.moe_adapters, args.clap4clip, args.mymethod, getattr(args, 'deqa', 0)]
     active_methods = [i for i, method in enumerate(cl_methods) if method]
     
     if len(active_methods) > 1:
-        method_names = ["EWC", "Replay", "LwF", "SI", "MAS", "GEM", "PNN", "TAM-CL", "MoE-Adapters", "CLAP4CLIP", "MyMethod"]
+        method_names = ["EWC", "Replay", "LwF", "SI", "MAS", "GEM", "PNN", "TAM-CL", "MoE-Adapters", "CLAP4CLIP", "MyMethod", "DEQA"]
         active_names = [method_names[i] for i in active_methods]
         print(f"Warning: Multiple continual learning methods active: {active_names}")
     

@@ -265,7 +265,13 @@ def train_epoch(model, train_loader, optimizer, device, args,
                 # 计算 KD 与多样性损失
                 kd_loss  = model.compute_distillation(seq, args.session_name, T=args.lwf_T)
                 div_loss = model.diversity_loss()
-
+                # 打印调试信息
+                def check_nan(name, tensor):
+                    if torch.isnan(tensor).any():
+                        print(f"[WARNING] {name} contains NaN")
+                check_nan("classification_loss", classification_loss)
+                check_nan("kd_loss", kd_loss)
+                check_nan("div_loss", div_loss)
                 # 计算 β
                 beta_base = 0.1 * ((1 - lambda_tam) * classification_loss + lambda_tam * alpha_tam * kd_loss)
                 beta_tam = torch.min(div_loss.detach(), beta_base.detach())
@@ -344,7 +350,7 @@ def train_epoch(model, train_loader, optimizer, device, args,
         optimizer.step()
         
         # === DDAS 自编码器训练 ===
-        if args.ddas and ddas_optimizer is not None and ddas_feats:
+        if args.moe_adapters and args.ddas and ddas_optimizer is not None and ddas_feats:
             # 将当前 batch 所有特征拼接
             ae_inputs = torch.cat(ddas_feats, dim=0)        # (N, D)
             ddas_optimizer.zero_grad()
