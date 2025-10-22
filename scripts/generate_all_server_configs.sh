@@ -51,40 +51,40 @@ for dataset in "${datasets[@]}"; do
             --seq_suffix "seq1" \
             --output "scripts/configs/server_${dataset}_${strategy}_seq1.json"
         
-        # seq1版本 - 使用label_embedding
-        echo "  - seq1版本，使用label_embedding"
-        python scripts/generate_task_config.py \
-            --env $env \
-            --dataset $dataset \
-            --strategy $strategy \
-            --task_sequence "${task_sequence_seq1[@]}" \
-            --mode_sequence "${mode_sequence_seq1[@]}" \
-            --seq_suffix "seq1" \
-            --use_label_embedding \
-            --output "scripts/configs/server_${dataset}_${strategy}_seq1_label_emb.json"
+    #    # seq1版本 - 使用label_embedding
+    #    echo "  - seq1版本，使用label_embedding"
+    #    python scripts/generate_task_config.py \
+    #        --env $env \
+    #        --dataset $dataset \
+    #        --strategy $strategy \
+    #        --task_sequence "${task_sequence_seq1[@]}" \
+    #        --mode_sequence "${mode_sequence_seq1[@]}" \
+    #        --seq_suffix "seq1" \
+    #        --use_label_embedding \
+    #        --output "scripts/configs/server_${dataset}_${strategy}_seq1_label_emb.json"
+#
+        # # seq2版本 - 不使用label_embedding
+        # echo "  - seq2版本，不使用label_embedding"
+        # python scripts/generate_task_config.py \
+        #     --env $env \
+        #     --dataset $dataset \
+        #     --strategy $strategy \
+        #     --task_sequence "${task_sequence_seq2[@]}" \
+        #     --mode_sequence "${mode_sequence_seq2[@]}" \
+        #     --seq_suffix "seq2" \
+        #     --output "scripts/configs/server_${dataset}_${strategy}_seq2.json"
         
-        # seq2版本 - 不使用label_embedding
-        echo "  - seq2版本，不使用label_embedding"
-        python scripts/generate_task_config.py \
-            --env $env \
-            --dataset $dataset \
-            --strategy $strategy \
-            --task_sequence "${task_sequence_seq2[@]}" \
-            --mode_sequence "${mode_sequence_seq2[@]}" \
-            --seq_suffix "seq2" \
-            --output "scripts/configs/server_${dataset}_${strategy}_seq2.json"
-        
-        # seq2版本 - 使用label_embedding
-        echo "  - seq2版本，使用label_embedding"
-        python scripts/generate_task_config.py \
-            --env $env \
-            --dataset $dataset \
-            --strategy $strategy \
-            --task_sequence "${task_sequence_seq2[@]}" \
-            --mode_sequence "${mode_sequence_seq2[@]}" \
-            --seq_suffix "seq2" \
-            --use_label_embedding \
-            --output "scripts/configs/server_${dataset}_${strategy}_seq2_label_emb.json"
+       # seq2版本 - 使用label_embedding
+    #    echo "  - seq2版本，使用label_embedding"
+    #    python scripts/generate_task_config.py \
+    #        --env $env \
+    #        --dataset $dataset \
+    #        --strategy $strategy \
+    #        --task_sequence "${task_sequence_seq2[@]}" \
+    #        --mode_sequence "${mode_sequence_seq2[@]}" \
+    #        --seq_suffix "seq2" \
+    #        --use_label_embedding \
+    #        --output "scripts/configs/server_${dataset}_${strategy}_seq2_label_emb.json"
         
         echo ""
     done

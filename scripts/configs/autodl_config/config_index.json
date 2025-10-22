@@ -1,0 +1,14 @@
+{
+  "total": 1,
+  "configs": [
+    {
+      "name": "server_twitter2015_deqa_seq1.json",
+      "path": "scripts/configs/autodl_config/server_twitter2015_deqa_seq1.json",
+      "dataset": "twitter2015",
+      "strategy": "deqa",
+      "sequence": "seq1"
+    }
+  ],
+  "execution_order": "单个测试配置"
+}
+

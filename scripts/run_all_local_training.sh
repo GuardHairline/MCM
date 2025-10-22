@@ -43,30 +43,49 @@ start_time=$(date +"%Y-%m-%d %H:%M:%S")
 echo "开始时间: $start_time"
 echo ""
 
-# 运行每个配置文件
+# 定义策略分组：快速策略先运行，慢速策略后运行
+fast_strategies=("none" "replay" "lwf" "mas" "gem" "mymethod" "tam_cl" "moe" "clap4clip")
+slow_strategies=("ewc" "si")
+
+# 第一阶段：运行所有快速策略
+echo "=== 第一阶段：运行所有快速策略 ==="
 for config_file in $local_configs; do
-    total_configs=$((total_configs + 1))
-    
-    # 提取配置文件名（不含路径和扩展名）
     config_name=$(basename "$config_file" .json)
     
-    echo "=== 运行配置: $config_name ==="
-    echo "配置文件: $config_file"
+    # 检查是否为快速策略
+    is_fast_strategy=false
+    for strategy in "${fast_strategies[@]}"; do
+        if [[ $config_name == *"_${strategy}_"* ]]; then
+            is_fast_strategy=true
+            break
+        fi
+    done
     
-    # 创建日志文件
-    log_file="scripts/log/local_training/${config_name}.log"
-    
-    # 运行训练脚本
-    echo "开始训练..."
-    echo "日志文件: $log_file"
-    
-    # 使用timeout防止无限运行，设置最大运行时间为2小时
-    timeout 7200 python -m scripts.train_with_zero_shot --config "$config_file" > "$log_file" 2>&1
-    
-    # 检查运行结果
-    if [ $? -eq 0 ]; then
-        echo "✓ 配置 $config_name 训练完成"
-        completed_configs=$((completed_configs + 1))
+    if [ "$is_fast_strategy" = true ]; then
+        total_configs=$((total_configs + 1))
+        
+        echo "=== 运行配置: $config_name (快速策略) ==="
+        echo "配置文件: $config_file"
+        
+        # 创建日志文件
+        log_file="scripts/log/local_training/${config_name}.log"
+        
+        # 运行训练脚本
+        echo "开始训练..."
+        echo "日志文件: $log_file"
+        
+        # 使用timeout防止无限运行，设置最大运行时间为1小时
+        timeout 3600 python -m scripts.train_with_zero_shot --config "$config_file" > "$log_file" 2>&1
+        
+        # 检查运行结果
+        if [ $? -eq 0 ]; then
+            echo "✓ 配置 $config_name 训练完成"
+            completed_configs=$((completed_configs + 1))
+        else
+            echo "✗ 配置 $config_name 训练失败"
+            failed_configs=$((failed_configs + 1))
+            echo "查看日志: tail -f $log_file"
+        fi
         
         # 删除生成的.pt文件以节省空间
         echo "清理生成的模型文件..."
@@ -78,12 +97,54 @@ for config_file in $local_configs; do
         rm -f "checkpoints/label_embedding_${config_basename}.pt"
         rm -f "checkpoints/train_info_${config_basename}.json"
         echo "模型文件清理完成"
-    else
-        echo "✗ 配置 $config_name 训练失败"
-        failed_configs=$((failed_configs + 1))
-        echo "查看日志: tail -f $log_file"
+        echo ""
+    fi
+done
+
+echo "=== 第一阶段完成：所有快速策略运行完毕 ==="
+echo ""
+
+# 第二阶段：运行所有慢速策略（EWC和SI）
+echo "=== 第二阶段：运行所有慢速策略 (EWC和SI) ==="
+for config_file in $local_configs; do
+    config_name=$(basename "$config_file" .json)
+    
+    # 检查是否为慢速策略
+    is_slow_strategy=false
+    for strategy in "${slow_strategies[@]}"; do
+        if [[ $config_name == *"_${strategy}_"* ]]; then
+            is_slow_strategy=true
+            break
+        fi
+    done
+    
+    if [ "$is_slow_strategy" = true ]; then
+        total_configs=$((total_configs + 1))
         
-        # 即使失败也清理.pt文件
+        echo "=== 运行配置: $config_name (慢速策略) ==="
+        echo "配置文件: $config_file"
+        
+        # 创建日志文件
+        log_file="scripts/log/local_training/${config_name}.log"
+        
+        # 运行训练脚本
+        echo "开始训练..."
+        echo "日志文件: $log_file"
+        
+        # 使用timeout防止无限运行，设置最大运行时间为4小时（EWC和SI需要更长时间）
+        timeout 14400 python -m scripts.train_with_zero_shot --config "$config_file" > "$log_file" 2>&1
+        
+        # 检查运行结果
+        if [ $? -eq 0 ]; then
+            echo "✓ 配置 $config_name 训练完成"
+            completed_configs=$((completed_configs + 1))
+        else
+            echo "✗ 配置 $config_name 训练失败"
+            failed_configs=$((failed_configs + 1))
+            echo "查看日志: tail -f $log_file"
+        fi
+        
+        # 删除生成的.pt文件以节省空间
         echo "清理生成的模型文件..."
         # 提取配置名称（去掉路径和扩展名）
         config_basename=$(basename "$config_file" .json)
@@ -93,10 +154,12 @@ for config_file in $local_configs; do
         rm -f "checkpoints/label_embedding_${config_basename}.pt"
         rm -f "checkpoints/train_info_${config_basename}.json"
         echo "模型文件清理完成"
+        echo ""
     fi
-    
-    echo ""
 done
+
+echo "=== 第二阶段完成：所有慢速策略运行完毕 ==="
+echo ""
 
 # 记录结束时间
 end_time=$(date +"%Y-%m-%d %H:%M:%S")

@@ -10,6 +10,8 @@ import argparse
 import sys
 import torch
 import torch.multiprocessing as mp
+import glob
+import os
 from pathlib import Path
 from typing import Dict, List, Any
 
@@ -26,6 +28,103 @@ def load_task_config(config_file: str) -> Dict[str, Any]:
     """加载任务配置文件"""
     with open(config_file, 'r', encoding='utf-8') as f:
         return json.load(f)
+
+
+def cleanup_experiment_files(config: Dict[str, Any], global_params: Dict[str, Any]):
+    """
+    清理本次实验生成的.pt文件
+    
+    只删除当前实验的文件，不影响其他实验的文件
+    根据配置文件名来识别相关文件
+    
+    Args:
+        config: 配置字典
+        global_params: 全局参数字典
+    """
+    try:
+        print("="*60)
+        print("🧹 开始清理实验文件...")
+        print("="*60)
+        
+        # 从global_params中提取文件名模式
+        # 例如: checkpoints/twitter2015_none_t2m_hp1.pt
+        model_path = global_params.get("output_model_path", "")
+        if not model_path:
+            print("⚠️  未找到模型路径，跳过清理")
+            return
+        
+        # 提取base_name: twitter2015_none_t2m_hp1
+        model_file = Path(model_path)
+        base_name = model_file.stem  # 不含.pt扩展名
+        checkpoint_dir = model_file.parent
+        
+        print(f"📝 识别模式: {base_name}")
+        print(f"📁 检查目录: {checkpoint_dir}")
+        
+        # 需要删除的文件模式
+        patterns_to_delete = [
+            f"{base_name}.pt",                      # 主模型文件
+            f"{base_name}_*.pt",                    # 其他相关模型文件
+            f"model_{base_name}*.pt",               # 带model前缀的文件
+            f"*{base_name}_task_heads.pt",          # 任务头文件
+            f"label_embedding_{base_name}.pt",      # 标签嵌入文件
+        ]
+        
+        deleted_count = 0
+        kept_count = 0
+        
+        # 在checkpoint_dir中查找并删除匹配的文件
+        for pattern in patterns_to_delete:
+            full_pattern = os.path.join(checkpoint_dir, pattern)
+            matching_files = glob.glob(full_pattern)
+            
+            for file_path in matching_files:
+                file_name = os.path.basename(file_path)
+                # 确保base_name在文件名中（额外安全检查）
+                if base_name in file_name:
+                    try:
+                        os.remove(file_path)
+                        print(f"  ✓ 删除: {file_name}")
+                        deleted_count += 1
+                    except Exception as e:
+                        print(f"  ✗ 删除失败: {file_name} ({e})")
+                else:
+                    kept_count += 1
+        
+        # 清理EWC参数
+        ewc_dir = global_params.get("ewc_dir", "")
+        if ewc_dir and os.path.exists(ewc_dir):
+            ewc_pattern = os.path.join(ewc_dir, f"*{base_name}*.pt")
+            for file_path in glob.glob(ewc_pattern):
+                if base_name in os.path.basename(file_path):
+                    try:
+                        os.remove(file_path)
+                        print(f"  ✓ 删除EWC: {os.path.basename(file_path)}")
+                        deleted_count += 1
+                    except Exception as e:
+                        print(f"  ✗ 删除EWC失败: {os.path.basename(file_path)} ({e})")
+        
+        # 清理GEM记忆
+        gem_dir = global_params.get("gem_mem_dir", "")
+        if gem_dir and os.path.exists(gem_dir):
+            gem_pattern = os.path.join(gem_dir, f"*{base_name}*.pt")
+            for file_path in glob.glob(gem_pattern):
+                if base_name in os.path.basename(file_path):
+                    try:
+                        os.remove(file_path)
+                        print(f"  ✓ 删除GEM: {os.path.basename(file_path)}")
+                        deleted_count += 1
+                    except Exception as e:
+                        print(f"  ✗ 删除GEM失败: {os.path.basename(file_path)} ({e})")
+        
+        print(f"\n✅ 清理完成: 删除 {deleted_count} 个文件")
+        print("="*60 + "\n")
+        
+    except Exception as e:
+        print(f"❌ 清理过程出错: {e}")
+        import traceback
+        traceback.print_exc()
+        print("="*60 + "\n")
 
 
 def run_single_task(task_config: Dict[str, Any], global_params: Dict[str, Any], 
@@ -78,11 +177,20 @@ def run_single_task(task_config: Dict[str, Any], global_params: Dict[str, Any],
                 "replay_frequency", "lwf", "lwf_T", "lwf_alpha", "lwf_decay",
                 "si", "si_epsilon", "si_decay", "mas", "mas_eps", "gem", "gem_mem",
                 "pnn", "tam_cl", "moe_adapters", "moe_num_experts", "moe_top_k",
-                "ddas", "ddas_threshold", "clap4clip", "mymethod"]:
+                "ddas", "ddas_threshold", "clap4clip", "mymethod", "deqa"]:
         if key in task_config:
             setattr(args, key, task_config[key])
         else:
             setattr(args, key, 0)  # 默认关闭
+    
+    # DEQA特定参数
+    if task_config.get("deqa", 0):
+        args.deqa_use_description = task_config.get("deqa_use_description", True)
+        args.deqa_use_clip = task_config.get("deqa_use_clip", True)
+        args.deqa_ensemble_method = task_config.get("deqa_ensemble_method", "weighted")
+        args.deqa_freeze_old_experts = task_config.get("deqa_freeze_old_experts", True)
+        args.deqa_distill_weight = task_config.get("deqa_distill_weight", 0.5)
+        args.description_file = task_config.get("description_file", None)
     
     # 标签嵌入参数
     args.use_label_embedding = task_config.get("use_label_embedding", False)
@@ -191,6 +299,9 @@ def main():
         train_info_file_path=global_params['train_info_json'],
         save_dir="checkpoints/acc_matrix"
     )
+    
+    # ========== 清理实验文件 ==========
+    cleanup_experiment_files(config, global_params)
 
 
 if __name__ == "__main__":

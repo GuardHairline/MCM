@@ -1,0 +1,423 @@
+{
+  "total_configs": 54,
+  "sequences": [
+    "seq1",
+    "seq2"
+  ],
+  "datasets": [
+    "twitter2015",
+    "twitter2017",
+    "mix"
+  ],
+  "strategies": [
+    "deqa",
+    "none",
+    "moe",
+    "replay",
+    "ewc",
+    "lwf",
+    "si",
+    "mas",
+    "gem"
+  ],
+  "task_sequence": [
+    "masc",
+    "mate",
+    "mner",
+    "mabsa",
+    "masc",
+    "mate",
+    "mner",
+    "mabsa"
+  ],
+  "mode_sequence": [
+    "text_only",
+    "text_only",
+    "text_only",
+    "text_only",
+    "multimodal",
+    "multimodal",
+    "multimodal",
+    "multimodal"
+  ],
+  "configs": [
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_deqa_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2015",
+      "strategy": "deqa",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_none_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2015",
+      "strategy": "none",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_moe_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2015",
+      "strategy": "moe",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_replay_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2015",
+      "strategy": "replay",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_ewc_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2015",
+      "strategy": "ewc",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_lwf_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2015",
+      "strategy": "lwf",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_si_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2015",
+      "strategy": "si",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_mas_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2015",
+      "strategy": "mas",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_gem_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2015",
+      "strategy": "gem",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_deqa_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2017",
+      "strategy": "deqa",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_none_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2017",
+      "strategy": "none",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_moe_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2017",
+      "strategy": "moe",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_replay_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2017",
+      "strategy": "replay",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_ewc_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2017",
+      "strategy": "ewc",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_lwf_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2017",
+      "strategy": "lwf",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_si_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2017",
+      "strategy": "si",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_mas_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2017",
+      "strategy": "mas",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_gem_seq1.json",
+      "seq": "seq1",
+      "dataset": "twitter2017",
+      "strategy": "gem",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_deqa_seq1.json",
+      "seq": "seq1",
+      "dataset": "mix",
+      "strategy": "deqa",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_none_seq1.json",
+      "seq": "seq1",
+      "dataset": "mix",
+      "strategy": "none",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_moe_seq1.json",
+      "seq": "seq1",
+      "dataset": "mix",
+      "strategy": "moe",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_replay_seq1.json",
+      "seq": "seq1",
+      "dataset": "mix",
+      "strategy": "replay",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_ewc_seq1.json",
+      "seq": "seq1",
+      "dataset": "mix",
+      "strategy": "ewc",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_lwf_seq1.json",
+      "seq": "seq1",
+      "dataset": "mix",
+      "strategy": "lwf",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_si_seq1.json",
+      "seq": "seq1",
+      "dataset": "mix",
+      "strategy": "si",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_mas_seq1.json",
+      "seq": "seq1",
+      "dataset": "mix",
+      "strategy": "mas",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_gem_seq1.json",
+      "seq": "seq1",
+      "dataset": "mix",
+      "strategy": "gem",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_deqa_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2015",
+      "strategy": "deqa",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_none_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2015",
+      "strategy": "none",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_moe_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2015",
+      "strategy": "moe",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_replay_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2015",
+      "strategy": "replay",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_ewc_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2015",
+      "strategy": "ewc",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_lwf_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2015",
+      "strategy": "lwf",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_si_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2015",
+      "strategy": "si",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_mas_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2015",
+      "strategy": "mas",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2015_gem_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2015",
+      "strategy": "gem",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_deqa_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2017",
+      "strategy": "deqa",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_none_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2017",
+      "strategy": "none",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_moe_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2017",
+      "strategy": "moe",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_replay_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2017",
+      "strategy": "replay",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_ewc_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2017",
+      "strategy": "ewc",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_lwf_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2017",
+      "strategy": "lwf",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_si_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2017",
+      "strategy": "si",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_mas_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2017",
+      "strategy": "mas",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_twitter2017_gem_seq2.json",
+      "seq": "seq2",
+      "dataset": "twitter2017",
+      "strategy": "gem",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_deqa_seq2.json",
+      "seq": "seq2",
+      "dataset": "mix",
+      "strategy": "deqa",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_none_seq2.json",
+      "seq": "seq2",
+      "dataset": "mix",
+      "strategy": "none",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_moe_seq2.json",
+      "seq": "seq2",
+      "dataset": "mix",
+      "strategy": "moe",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_replay_seq2.json",
+      "seq": "seq2",
+      "dataset": "mix",
+      "strategy": "replay",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_ewc_seq2.json",
+      "seq": "seq2",
+      "dataset": "mix",
+      "strategy": "ewc",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_lwf_seq2.json",
+      "seq": "seq2",
+      "dataset": "mix",
+      "strategy": "lwf",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_si_seq2.json",
+      "seq": "seq2",
+      "dataset": "mix",
+      "strategy": "si",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_mas_seq2.json",
+      "seq": "seq2",
+      "dataset": "mix",
+      "strategy": "mas",
+      "env": "server"
+    },
+    {
+      "file": "scripts/configs/all_task/server_mix_gem_seq2.json",
+      "seq": "seq2",
+      "dataset": "mix",
+      "strategy": "gem",
+      "env": "server"
+    }
+  ]
+}

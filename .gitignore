@@ -46,3 +46,13 @@ downloaded_model/
 AAAI26_paper/
 
 analysis_results/
+
+tests/
+
+test_outputs/
+
+figures/
+
+generate_figure/
+
+hyperparam_analysis/

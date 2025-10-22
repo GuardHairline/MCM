@@ -1,0 +1,14 @@
+{
+    "total": 2,
+    "completed": 1,
+    "failed": 1,
+    "start_time": "2024-10-22 10:00:00",
+    "end_time": "2024-10-22 12:30:00",
+    "duration_seconds": 9000,
+    "successful_configs": [
+        {"name": "autodl_twitter2015_deqa_seq1.json", "duration": 3600}
+    ],
+    "failed_configs": [
+        {"name": "autodl_twitter2017_deqa_seq1.json", "error": "CUDA out of memory"}
+    ]
+}

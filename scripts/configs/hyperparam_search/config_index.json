@@ -1,0 +1,392 @@
+{
+  "total_configs": 52,
+  "strategies": [
+    "none",
+    "replay",
+    "moe",
+    "deqa"
+  ],
+  "hyperparameter_grid": {
+    "lr": [
+      5e-05,
+      1e-05,
+      5e-06
+    ],
+    "step_size": [
+      5,
+      10,
+      15
+    ],
+    "gamma": [
+      0.3,
+      0.5,
+      0.7
+    ]
+  },
+  "configs": [
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_none_lr5e05_ss5_g0.5.json",
+      "strategy": "none",
+      "lr": 5e-05,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_none_lr5e05_ss10_g0.5.json",
+      "strategy": "none",
+      "lr": 5e-05,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_none_lr5e05_ss15_g0.5.json",
+      "strategy": "none",
+      "lr": 5e-05,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_none_lr1e05_ss5_g0.5.json",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_none_lr1e05_ss10_g0.5.json",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_none_lr1e05_ss15_g0.5.json",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_none_lr5e06_ss5_g0.5.json",
+      "strategy": "none",
+      "lr": 5e-06,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_none_lr5e06_ss10_g0.5.json",
+      "strategy": "none",
+      "lr": 5e-06,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_none_lr5e06_ss15_g0.5.json",
+      "strategy": "none",
+      "lr": 5e-06,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_none_lr1e05_ss10_g0.3.json",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.3
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_none_lr1e05_ss10_g0.7.json",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.7
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_none_lr5e05_ss5_g0.7.json",
+      "strategy": "none",
+      "lr": 5e-05,
+      "step_size": 5,
+      "gamma": 0.7
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_none_lr5e06_ss15_g0.3.json",
+      "strategy": "none",
+      "lr": 5e-06,
+      "step_size": 15,
+      "gamma": 0.3
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_replay_lr5e05_ss5_g0.5.json",
+      "strategy": "replay",
+      "lr": 5e-05,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_replay_lr5e05_ss10_g0.5.json",
+      "strategy": "replay",
+      "lr": 5e-05,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_replay_lr5e05_ss15_g0.5.json",
+      "strategy": "replay",
+      "lr": 5e-05,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_replay_lr1e05_ss5_g0.5.json",
+      "strategy": "replay",
+      "lr": 1e-05,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_replay_lr1e05_ss10_g0.5.json",
+      "strategy": "replay",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_replay_lr1e05_ss15_g0.5.json",
+      "strategy": "replay",
+      "lr": 1e-05,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_replay_lr5e06_ss5_g0.5.json",
+      "strategy": "replay",
+      "lr": 5e-06,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_replay_lr5e06_ss10_g0.5.json",
+      "strategy": "replay",
+      "lr": 5e-06,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_replay_lr5e06_ss15_g0.5.json",
+      "strategy": "replay",
+      "lr": 5e-06,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_replay_lr1e05_ss10_g0.3.json",
+      "strategy": "replay",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.3
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_replay_lr1e05_ss10_g0.7.json",
+      "strategy": "replay",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.7
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_replay_lr5e05_ss5_g0.7.json",
+      "strategy": "replay",
+      "lr": 5e-05,
+      "step_size": 5,
+      "gamma": 0.7
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_replay_lr5e06_ss15_g0.3.json",
+      "strategy": "replay",
+      "lr": 5e-06,
+      "step_size": 15,
+      "gamma": 0.3
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_moe_lr5e05_ss5_g0.5.json",
+      "strategy": "moe",
+      "lr": 5e-05,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_moe_lr5e05_ss10_g0.5.json",
+      "strategy": "moe",
+      "lr": 5e-05,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_moe_lr5e05_ss15_g0.5.json",
+      "strategy": "moe",
+      "lr": 5e-05,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_moe_lr1e05_ss5_g0.5.json",
+      "strategy": "moe",
+      "lr": 1e-05,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_moe_lr1e05_ss10_g0.5.json",
+      "strategy": "moe",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_moe_lr1e05_ss15_g0.5.json",
+      "strategy": "moe",
+      "lr": 1e-05,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_moe_lr5e06_ss5_g0.5.json",
+      "strategy": "moe",
+      "lr": 5e-06,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_moe_lr5e06_ss10_g0.5.json",
+      "strategy": "moe",
+      "lr": 5e-06,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_moe_lr5e06_ss15_g0.5.json",
+      "strategy": "moe",
+      "lr": 5e-06,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_moe_lr1e05_ss10_g0.3.json",
+      "strategy": "moe",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.3
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_moe_lr1e05_ss10_g0.7.json",
+      "strategy": "moe",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.7
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_moe_lr5e05_ss5_g0.7.json",
+      "strategy": "moe",
+      "lr": 5e-05,
+      "step_size": 5,
+      "gamma": 0.7
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_moe_lr5e06_ss15_g0.3.json",
+      "strategy": "moe",
+      "lr": 5e-06,
+      "step_size": 15,
+      "gamma": 0.3
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_deqa_lr5e05_ss5_g0.5.json",
+      "strategy": "deqa",
+      "lr": 5e-05,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_deqa_lr5e05_ss10_g0.5.json",
+      "strategy": "deqa",
+      "lr": 5e-05,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_deqa_lr5e05_ss15_g0.5.json",
+      "strategy": "deqa",
+      "lr": 5e-05,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_deqa_lr1e05_ss5_g0.5.json",
+      "strategy": "deqa",
+      "lr": 1e-05,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_deqa_lr1e05_ss10_g0.5.json",
+      "strategy": "deqa",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_deqa_lr1e05_ss15_g0.5.json",
+      "strategy": "deqa",
+      "lr": 1e-05,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_deqa_lr5e06_ss5_g0.5.json",
+      "strategy": "deqa",
+      "lr": 5e-06,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_deqa_lr5e06_ss10_g0.5.json",
+      "strategy": "deqa",
+      "lr": 5e-06,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_deqa_lr5e06_ss15_g0.5.json",
+      "strategy": "deqa",
+      "lr": 5e-06,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_deqa_lr1e05_ss10_g0.3.json",
+      "strategy": "deqa",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.3
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_deqa_lr1e05_ss10_g0.7.json",
+      "strategy": "deqa",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.7
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_deqa_lr5e05_ss5_g0.7.json",
+      "strategy": "deqa",
+      "lr": 5e-05,
+      "step_size": 5,
+      "gamma": 0.7
+    },
+    {
+      "file": "scripts/configs/hyperparam_search/server_twitter2015_deqa_lr5e06_ss15_g0.3.json",
+      "strategy": "deqa",
+      "lr": 5e-06,
+      "step_size": 15,
+      "gamma": 0.3
+    }
+  ]
+}

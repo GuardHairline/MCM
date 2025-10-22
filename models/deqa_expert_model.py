@@ -89,8 +89,11 @@ class DEQAMultimodalModel(nn.Module):
         )
         
         # 任务头管理器（用于管理不同任务的输出层）
+        # device将在模型.to(device)时自动更新
         self.head_manager = TaskHeadManager(
-            hidden_dim=self.base_model.fusion_output_dim
+            base_model=self.base_model,
+            label_embedding_manager=None,
+            device='cuda' if torch.cuda.is_available() else 'cpu'
         )
         
         # 当前激活的任务
@@ -117,6 +120,11 @@ class DEQAMultimodalModel(nn.Module):
             num_labels=None,  # ✓ 不需要，因为use_head=False
             use_head=False  # ✓ 重要：专家只输出特征，不输出logits
         )
+        
+        # ✓ 确保新添加的ensemble在正确的设备上
+        device = next(self.base_model.parameters()).device
+        if session_name in self.deqa_cl.task_ensembles:
+            self.deqa_cl.task_ensembles[session_name] = self.deqa_cl.task_ensembles[session_name].to(device)
         
         # 记录当前任务
         self.current_task = task_name
