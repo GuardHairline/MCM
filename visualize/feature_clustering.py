@@ -434,7 +434,9 @@ def plot_continual_learning_evolution(
     ax2.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    save_path = save_dir / f'continual_learning_evolution_{method}.png'
+    # ✨ 添加config_name前缀以避免不同配置的演进图互相覆盖
+    prefix = f"{config_name}_" if config_name else ""
+    save_path = save_dir / f'{prefix}continual_learning_evolution_{method}.png'
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
     
@@ -526,7 +528,8 @@ def visualize_task_after_training(
 def visualize_all_tasks_evolution(
     save_dir: str,
     split: str = 'dev',
-    method: str = 'tsne'
+    method: str = 'tsne',
+    config_name: str = None
 ):
     """
     加载所有已保存的任务特征，绘制演进图
@@ -535,6 +538,7 @@ def visualize_all_tasks_evolution(
         save_dir: 特征保存目录
         split: 数据集划分
         method: 降维方法
+        config_name: ✨ 配置文件名称（用于区分不同配置，避免覆盖）
     """
     save_dir = Path(save_dir)
     

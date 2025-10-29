@@ -13,7 +13,7 @@ from torch.utils.data._utils.collate import default_collate
 # 新增导入：用于实时评估当前模型
 from modules.evaluate import evaluate_single_task
 from datasets.get_dataset import get_dataset  # 使用你现有的 get_dataset 函数
-from utils.logging import setup_logger
+from utils.logger import setup_logger
 from models.task_heads.get_head import get_head
 
 logger = logging.getLogger(__name__)

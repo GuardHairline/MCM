@@ -512,11 +512,11 @@ class TaskConfigGenerator:
         self.environments = {
             "server": {
                 "base_dir": "",
-                "model_name": "checkpoints/251022/{task}_{dataset}_{strategy}_{seq}.pt",  # 服务器版本统一命名
-                "log_dir": "checkpoints/251022/log",
-                "checkpoint_dir": "checkpoints/251022",
-                "ewc_dir": "checkpoints/251022/ewc_params",
-                "gem_dir": "checkpoints/251022/gem_memory"
+                "model_name": "checkpoints/251024/{task}_{dataset}_{strategy}_{seq}.pt",  # 服务器版本统一命名
+                "log_dir": "checkpoints/251024/log",
+                "checkpoint_dir": "checkpoints/251024",
+                "ewc_dir": "checkpoints/251024/ewc_params",
+                "gem_dir": "checkpoints/251024/gem_memory"
             },
             "local": {
                 "base_dir": "./",
@@ -1070,7 +1070,7 @@ def generate_all_task_configs(env: str = "server",
 
 def main():
     parser = argparse.ArgumentParser(description="生成任务配置文件")
-    parser.add_argument("--env", type=str, default="local", 
+    parser.add_argument("--env", type=str, default="server", 
                        choices=["local", "server"],
                        help="环境类型")
     parser.add_argument("--dataset", type=str, default="200", 

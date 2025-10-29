@@ -21,7 +21,7 @@ mp.set_sharing_strategy('file_system')
 # 导入训练模块
 from modules.train_refactored import train
 from modules.parser import parse_train_args
-from utils.logging import setup_logger
+from utils.logger import setup_logger
 
 
 def load_task_config(config_file: str) -> Dict[str, Any]:

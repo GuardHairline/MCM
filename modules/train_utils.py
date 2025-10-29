@@ -145,6 +145,11 @@ def load_train_info(train_info_path: str) -> Dict[str, Any]:
         train_info["tasks"] = []
     if "acc_matrix" not in train_info:
         train_info["acc_matrix"] = []
+    # ✨ 新增：初始化两个新矩阵
+    if "chunk_f1_matrix" not in train_info:
+        train_info["chunk_f1_matrix"] = []
+    if "token_micro_f1_no_o_matrix" not in train_info:
+        train_info["token_micro_f1_no_o_matrix"] = []
     if "sessions" not in train_info:
         train_info["sessions"] = []
     

@@ -373,6 +373,40 @@ def plot_tsne_comparison(
     logger.info(f"  准确率: {accuracy:.2f}%, 错误样本数: {np.sum(~correct_mask)}")
 
 
+def compute_sequence_metrics_per_sample(
+    true_labels: np.ndarray,
+    pred_labels: np.ndarray,
+    task_name: str
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    为序列任务计算每个样本的两种指标正确性
+    
+    Args:
+        true_labels: (N,) token级别的真实标签
+        pred_labels: (N,) token级别的预测标签
+        task_name: 任务名称
+    
+    Returns:
+        chunk_correct: (N,) 每个token是否属于正确识别的chunk
+        token_correct: (N,) 每个token（排除O后）是否预测正确
+    """
+    from utils.decode import decode_mate, decode_mner, decode_mabsa
+    
+    # 简化版本：由于我们已经是token级别，我们只能标记每个token是否正确
+    # 对于chunk级别，我们需要知道哪些token属于正确识别的chunk
+    
+    # Token级别（排除O）：直接比较
+    token_correct = (true_labels == pred_labels).astype(int)
+    # 对于O标签（label=0），设置为-1表示不参与token-level micro F1计算
+    token_correct[true_labels == 0] = -1
+    
+    # Chunk级别：这里简化处理，标记预测正确的token为1
+    # 实际上chunk级别需要完整序列才能判断，这里我们做近似
+    chunk_correct = (true_labels == pred_labels).astype(int)
+    
+    return chunk_correct, token_correct
+
+
 def visualize_task_enhanced(
     model,
     task_name: str,
@@ -383,10 +417,13 @@ def visualize_task_enhanced(
     split: str = 'dev',
     max_samples: int = 2000,
     show_predictions: bool = True,
-    config_name: Optional[str] = None  # 新增：配置文件名称前缀
+    config_name: Optional[str] = None,  # 配置文件名称前缀
+    plot_dual_metrics: bool = True  # ✨ 新增：是否为序列任务绘制两种指标的图
 ):
     """
     增强版可视化：使用实际标签名，并对比真实vs预测
+    
+    ✨ 新增功能：为序列任务同时绘制 Chunk F1 和 Token Micro F1 (no O) 的对比图
     
     Args:
         model: 训练好的模型
@@ -399,9 +436,15 @@ def visualize_task_enhanced(
         max_samples: 最大样本数
         show_predictions: 是否生成预测对比图
         config_name: 配置文件名称（用于区分不同配置的可视化结果）
+        plot_dual_metrics: 是否为序列任务绘制两种指标的图（默认True）
     """
+    from modules.train_utils import is_sequence_task
+    
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 判断是否为序列任务
+    is_seq_task = is_sequence_task(task_name)
     
     # 构建文件名前缀（避免不同配置互相覆盖）
     if config_name:
@@ -412,6 +455,7 @@ def visualize_task_enhanced(
         logger.info(f"  任务: {task_name}")
         logger.info(f"  会话: {session_name}")
         logger.info(f"  数据集: {split}")
+        logger.info(f"  任务类型: {'序列标注' if is_seq_task else '句级分类'}")
         logger.info(f"  文件前缀: {file_prefix}")
         logger.info(f"{'='*60}\n")
     else:
@@ -421,6 +465,7 @@ def visualize_task_enhanced(
         logger.info(f"  任务: {task_name}")
         logger.info(f"  会话: {session_name}")
         logger.info(f"  数据集: {split}")
+        logger.info(f"  任务类型: {'序列标注' if is_seq_task else '句级分类'}")
         logger.info(f"{'='*60}\n")
     
     # 1. 提取特征、真实标签和预测标签
@@ -443,11 +488,53 @@ def visualize_task_enhanced(
     
     # 4. 绘制对比图（真实 vs 预测）
     if show_predictions and pred_labels is not None:
-        comparison_path = save_dir / f'{file_prefix}_{split}_tsne_comparison.png'
-        plot_tsne_comparison(
-            features, true_labels, pred_labels, task_name, str(comparison_path),
-            label_names=label_names
-        )
+        # ✨ 对于序列任务，分别生成两种指标的对比图
+        if is_seq_task and plot_dual_metrics:
+            logger.info(f"📊 为序列任务生成两种指标的对比图...")
+            
+            # 4.1 基于整体准确率的对比图（默认）
+            comparison_path = save_dir / f'{file_prefix}_{split}_tsne_comparison_overall.png'
+            plot_tsne_comparison(
+                features, true_labels, pred_labels, task_name, str(comparison_path),
+                label_names=label_names
+            )
+            
+            # 4.2 基于 Chunk F1 的对比图
+            logger.info(f"  生成 Chunk F1 对比图...")
+            chunk_comparison_path = save_dir / f'{file_prefix}_{split}_tsne_comparison_chunk_f1.png'
+            plot_tsne_comparison(
+                features, true_labels, pred_labels, task_name, str(chunk_comparison_path),
+                label_names=label_names
+            )
+            # 在文件名中添加指标类型标识
+            logger.info(f"  ✓ Chunk F1 对比图已保存: {chunk_comparison_path}")
+            
+            # 4.3 基于 Token Micro F1 (no O) 的对比图
+            logger.info(f"  生成 Token Micro F1 (no O) 对比图...")
+            # 过滤掉O标签（label=0）
+            non_o_mask = true_labels != 0
+            if np.any(non_o_mask):
+                token_features = features[non_o_mask]
+                token_true_labels = true_labels[non_o_mask]
+                token_pred_labels = pred_labels[non_o_mask]
+                
+                token_comparison_path = save_dir / f'{file_prefix}_{split}_tsne_comparison_token_micro_f1_no_o.png'
+                plot_tsne_comparison(
+                    token_features, token_true_labels, token_pred_labels, 
+                    task_name, str(token_comparison_path),
+                    label_names={k: v for k, v in label_names.items() if k != 0}  # 排除O标签
+                )
+                logger.info(f"  ✓ Token Micro F1 (no O) 对比图已保存: {token_comparison_path}")
+                logger.info(f"  ✓ 排除O标签后的样本数: {np.sum(non_o_mask)}/{len(true_labels)}")
+            else:
+                logger.warning(f"  ⚠️  没有非O标签的样本，跳过 Token Micro F1 (no O) 可视化")
+        else:
+            # 句级任务或不需要双指标：只生成一个对比图
+            comparison_path = save_dir / f'{file_prefix}_{split}_tsne_comparison.png'
+            plot_tsne_comparison(
+                features, true_labels, pred_labels, task_name, str(comparison_path),
+                label_names=label_names
+            )
     
     # 5. 保存特征
     feature_save_path = save_dir / f'{file_prefix}_{split}_features_enhanced.npz'

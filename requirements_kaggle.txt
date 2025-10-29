@@ -1,0 +1,19 @@
+# Kaggle优化的依赖文件
+# 
+# 说明：
+# - Kaggle已预装torch, torchvision, transformers, numpy, scikit-learn等
+# - 只安装Kaggle环境缺失或需要特定版本的包
+# - 避免与Kaggle预装包版本冲突
+
+# 必需的特定版本包
+pytorch_crf==0.7.2
+sentencepiece==0.1.99
+protobuf==3.20.3
+
+# Kaggle环境可能没有的包
+openpyxl>=3.0.0
+
+# 如果需要特定版本，使用以下方式（通常不推荐）
+# matplotlib>=3.8.0
+# Pillow>=10.0.0
+

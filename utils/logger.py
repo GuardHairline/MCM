@@ -1,4 +1,4 @@
-# utils/logging.py
+# utils/logger.py
 import logging
 import os
 from datetime import datetime
@@ -88,3 +88,4 @@ def setup_logger(log_level=logging.INFO, args=None):
     logger.info(f"Log file is saved to: {log_filepath}")
 
     return logger
+

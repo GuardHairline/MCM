@@ -199,7 +199,7 @@ def evaluate_single_task(model, task_name, split, device, args):
 
                 for i in range(bsz):
                     # 过滤 -100
-                    valid_len = (labels[i] != -100).sum().item() + 1
+                    valid_len = (labels[i] != -100).sum().item()
                     pred_i = preds[i, :valid_len].cpu().tolist()
                     gold_i = labels[i, :valid_len].cpu().tolist()
 
@@ -350,20 +350,42 @@ def evaluate_single_task(model, task_name, split, device, args):
             valid_labels, valid_preds, average='macro', zero_division=0
         )
         
+        # 计算token-level的micro F1（排除O标签，通常label=0）
+        # 过滤掉O标签（label=0）
+        valid_preds_no_o = []
+        valid_labels_no_o = []
+        for p, g in zip(valid_preds, valid_labels):
+            if g != 0:  # 排除O标签
+                valid_preds_no_o.append(p)
+                valid_labels_no_o.append(g)
+        
+        # 计算排除O标签后的micro F1
+        if len(valid_labels_no_o) > 0:
+            token_micro_prec, token_micro_rec, token_micro_f1, _ = precision_recall_fscore_support(
+                valid_labels_no_o, valid_preds_no_o, average='micro', zero_division=0
+            )
+        else:
+            token_micro_prec = token_micro_rec = token_micro_f1 = 0.0
+        
         metrics = {
-            "acc": chunk_f1 * 100.0,  # 主指标：Chunk F1
+            "acc": chunk_f1 * 100.0,  # 默认主指标：Chunk F1（向后兼容）
             "chunk_precision": chunk_prec * 100.0,
             "chunk_recall": chunk_rec * 100.0,
-            "chunk_f1": chunk_f1 * 100.0,
+            "chunk_f1": chunk_f1 * 100.0,  # ✨ 序列任务主指标1
             "token_acc": token_acc * 100.0,
             "token_macro_f1": token_macro_f1 * 100.0,
+            "token_micro_f1_no_o": token_micro_f1 * 100.0,  # ✨ 序列任务主指标2（排除O标签的micro F1）
+            "token_micro_precision_no_o": token_micro_prec * 100.0,
+            "token_micro_recall_no_o": token_micro_rec * 100.0,
             "label_counter": label_counter,
         }
-        logger.info(f"[{task_name}] Chunk F1: {chunk_f1*100:.2f}% (主指标), Token Acc: {token_acc*100:.2f}% (参考)")
+        logger.info(f"[{task_name}] Chunk F1: {chunk_f1*100:.2f}% (主指标1), "
+                   f"Token Micro F1 (无O): {token_micro_f1*100:.2f}% (主指标2), "
+                   f"Token Acc: {token_acc*100:.2f}% (参考)")
     
     else:
         # ============================================================
-        # 句级分类任务 (MASC, MNRE): 使用 Macro F1
+        # 句级分类任务 (MASC, MNRE): 使用 Micro F1
         # ============================================================
         # 计算macro平均指标
         macro_prec, macro_rec, macro_f1, _ = precision_recall_fscore_support(
@@ -381,7 +403,7 @@ def evaluate_single_task(model, task_name, split, device, args):
         )
         
         metrics = {
-            "acc": macro_f1 * 100.0,  # 主指标：Macro F1
+            "acc": micro_f1 * 100.0,  # 主指标：Micro F1
             "accuracy": token_acc * 100.0,
             "macro_precision": macro_prec * 100.0,
             "macro_recall": macro_rec * 100.0,
@@ -390,7 +412,9 @@ def evaluate_single_task(model, task_name, split, device, args):
             "weighted_f1": weighted_f1 * 100.0,
             "label_counter": label_counter,
         }
-        logger.info(f"[{task_name}] Macro F1: {macro_f1*100:.2f}% (主指标), Accuracy: {token_acc*100:.2f}% (参考)")
+        logger.info(f"[{task_name}] Micro F1: {micro_f1*100:.2f}% (主指标), "
+                   f"Macro F1: {macro_f1*100:.2f}% (参考), "
+                   f"Accuracy: {token_acc*100:.2f}% (参考)")
     
     # 打印标签分布
     logger.info(f"Label Distribution for {task_name} {split}: {label_counter}")

@@ -1,7 +1,7 @@
 import itertools, copy, json, os, datetime, argparse
 from modules.parser import create_train_parser, validate_args
 from modules.train_refactored import train
-from utils.logging import setup_logger
+from utils.logger import setup_logger
 
 def run_single(args, max_epoch=5):
     # 将 epoch 改为5

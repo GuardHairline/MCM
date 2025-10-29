@@ -27,7 +27,7 @@ from continual.tam_cl import TamCLModel
 from continual.moe_adapters.moe_model_wrapper import MoeAdapterWrapper
 from continual.moe_adapters.ddas_router import DDASRouter   # 如果需要
 from continual.clap4clip.clap4clip import CLAP4CLIP
-from utils.logging import setup_logger
+from utils.logger import setup_logger
 from utils.ensureFileExists import ensure_directory_exists
 import logging
 import copy

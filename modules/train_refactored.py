@@ -36,7 +36,7 @@ from continual.label_embedding import (
 from continual.label_embedding_manager import LabelEmbeddingManager
 from continual.moe_adapters.freeze_topk_experts import freeze_topk_experts
 from continual.metrics import ContinualMetrics
-from utils.logging import setup_logger
+from utils.logger import setup_logger
 from utils.ensureFileExists import ensure_directory_exists
 from visualize.feature_clustering import visualize_task_after_training, visualize_all_tasks_evolution
 from visualize.feature_clustering_enhanced import visualize_task_enhanced
@@ -373,31 +373,83 @@ def train(args, logger, all_tasks=[]):
     # 获取当前任务的索引（基于已学习的任务数量）
     task_idx = len(train_info["tasks"])
     
-    # 更新准确率矩阵
+    # ✨ 更新准确率矩阵（支持三种指标）
     cm = ContinualMetrics()
-    cm.acc_matrix = train_info["acc_matrix"]
+    cm.acc_matrix = train_info.get("acc_matrix", [])
+    cm.chunk_f1_matrix = train_info.get("chunk_f1_matrix", [])
+    cm.token_micro_f1_no_o_matrix = train_info.get("token_micro_f1_no_o_matrix", [])
     
-    # 构建性能列表：包含所有已学习任务的准确率
-    performance_list = []
+    # ✨ 构建三种性能列表：包含所有已学习任务的准确率
+    performance_list = []  # 默认指标（acc）
+    chunk_f1_list = []  # 序列任务指标1
+    token_micro_f1_no_o_list = []  # 序列任务指标2
+    
+    # 辅助函数：从metrics中提取指定指标
+    def extract_metrics_for_all_tasks(full_model, sessions, device, train_info, metric_name='acc'):
+        """评估所有历史任务并提取指定指标"""
+        metrics_list = []
+        for session in sessions:
+            session_args = argparse.Namespace(**session["args"])
+            task_metrics = evaluate_single_task(full_model, session["task_name"], "test", device, session_args)
+            metrics_list.append(task_metrics.get(metric_name, 0.0))
+        return metrics_list
     
     # 如果有之前学习的任务，需要评估所有任务（使用TEST集进行最终评估）
     if old_sessions_count > 0:
         logger.info(f"Previous sessions: {[s.get('session_name', 'unknown') for s in train_info['sessions']]}")
-        # 评估所有历史任务（使用TEST集）
-        all_test_metrics = evaluate_all_learned_tasks(full_model, train_info["sessions"], device, train_info)
-        logger.info(f"All historical tasks TEST metrics: {all_test_metrics}")
-        logger.info(f"Current task TEST metrics: {current_test_metrics['acc']:.4f}")
-        # 将当前任务的准确率添加到列表中（使用TEST集指标）
-        performance_list = all_test_metrics + [current_test_metrics["acc"]]
-        logger.info(f"Final performance list (TEST): {performance_list}")
+        
+        # 评估所有历史任务，获取三种指标
+        all_acc_metrics = extract_metrics_for_all_tasks(full_model, train_info["sessions"], device, train_info, 'acc')
+        all_chunk_f1_metrics = extract_metrics_for_all_tasks(full_model, train_info["sessions"], device, train_info, 'chunk_f1')
+        all_token_micro_f1_no_o_metrics = extract_metrics_for_all_tasks(full_model, train_info["sessions"], device, train_info, 'token_micro_f1_no_o')
+        
+        logger.info(f"All historical tasks TEST metrics (acc): {all_acc_metrics}")
+        logger.info(f"All historical tasks TEST metrics (chunk_f1): {all_chunk_f1_metrics}")
+        logger.info(f"All historical tasks TEST metrics (token_micro_f1_no_o): {all_token_micro_f1_no_o_metrics}")
+        
+        # 添加当前任务的指标
+        performance_list = all_acc_metrics + [current_test_metrics["acc"]]
+        chunk_f1_list = all_chunk_f1_metrics + [current_test_metrics.get("chunk_f1", current_test_metrics["acc"])]
+        token_micro_f1_no_o_list = all_token_micro_f1_no_o_metrics + [current_test_metrics.get("token_micro_f1_no_o", current_test_metrics["acc"])]
+        
+        logger.info(f"Current task TEST metrics - acc: {current_test_metrics['acc']:.4f}, "
+                   f"chunk_f1: {current_test_metrics.get('chunk_f1', current_test_metrics['acc']):.4f}, "
+                   f"token_micro_f1_no_o: {current_test_metrics.get('token_micro_f1_no_o', current_test_metrics['acc']):.4f}")
+        logger.info(f"Final performance list (acc): {performance_list}")
+        logger.info(f"Final performance list (chunk_f1): {chunk_f1_list}")
+        logger.info(f"Final performance list (token_micro_f1_no_o): {token_micro_f1_no_o_list}")
     else:
         # 第一个任务，只有当前任务的准确率（使用TEST集指标）
         performance_list = [current_test_metrics["acc"]]
-        logger.info(f"First task performance list (TEST): {performance_list}")
+        chunk_f1_list = [current_test_metrics.get("chunk_f1", current_test_metrics["acc"])]
+        token_micro_f1_no_o_list = [current_test_metrics.get("token_micro_f1_no_o", current_test_metrics["acc"])]
+        
+        logger.info(f"First task performance - acc: {performance_list[0]:.4f}, "
+                   f"chunk_f1: {chunk_f1_list[0]:.4f}, "
+                   f"token_micro_f1_no_o: {token_micro_f1_no_o_list[0]:.4f}")
     
-    # 将0样本指标传递给准确率矩阵
-    cm.update_acc_matrix(task_idx, performance_list, zero_shot_metrics)
+    # ✨ 处理0样本指标（分别提取三种指标）
+    zero_shot_chunk_f1_metrics = {}
+    zero_shot_token_micro_f1_no_o_metrics = {}
+    if zero_shot_metrics:
+        for session_name, metrics in zero_shot_metrics.items():
+            if metrics:
+                zero_shot_chunk_f1_metrics[session_name] = {'chunk_f1': metrics.get('chunk_f1', metrics.get('acc', 0.0))}
+                zero_shot_token_micro_f1_no_o_metrics[session_name] = {'token_micro_f1_no_o': metrics.get('token_micro_f1_no_o', metrics.get('acc', 0.0))}
+    
+    # ✨ 将三种指标传递给准确率矩阵
+    cm.update_acc_matrix(
+        task_idx, 
+        performance_list, 
+        zero_shot_metrics,
+        chunk_f1_list,
+        token_micro_f1_no_o_list,
+        zero_shot_chunk_f1_metrics,
+        zero_shot_token_micro_f1_no_o_metrics
+    )
     train_info["acc_matrix"] = cm.acc_matrix
+    train_info["chunk_f1_matrix"] = cm.chunk_f1_matrix
+    train_info["token_micro_f1_no_o_matrix"] = cm.token_micro_f1_no_o_matrix
     
     # 添加当前任务到训练信息中
     train_info["sessions"].append(session_info)
@@ -408,6 +460,8 @@ def train(args, logger, all_tasks=[]):
     if len(train_info["sessions"]) <= 1:
         logger.info("[Info] This is the first task, skip any CL metrics.")
         final_metrics = {}
+        final_metrics_chunk_f1 = {}
+        final_metrics_token_micro_f1_no_o = {}
     else:
         k = len(train_info["sessions"])  # 总任务数
         from continual.metrics import compute_multimodal_transfer_metrics, analyze_task_similarity_transfer
@@ -415,21 +469,46 @@ def train(args, logger, all_tasks=[]):
         # 获取任务名称列表
         task_names = [session.get('task_name', 'unknown') for session in train_info["sessions"]]
         
-        # 计算多模态转移指标
-        final_metrics = compute_multimodal_transfer_metrics(cm, k, task_names)
+        # ✨ 分别用三种指标计算持续学习指标
+        logger.info("="*80)
+        logger.info("📊 Computing Continual Learning Metrics with 3 different metrics:")
+        logger.info("="*80)
         
-        # 分析任务相似性转移
-        similarity_analysis = analyze_task_similarity_transfer(cm, task_names)
+        # 1. 默认指标（acc）
+        logger.info(f"📈 Metric 1: Default (acc) - micro_f1 for sentence tasks, chunk_f1 for sequence tasks")
+        final_metrics = compute_multimodal_transfer_metrics(cm, k, task_names, matrix_type='acc')
+        similarity_analysis = analyze_task_similarity_transfer(cm, task_names, matrix_type='acc')
         if similarity_analysis:
             final_metrics.update(similarity_analysis)
-            logger.info(f"Task similarity analysis: {similarity_analysis}")
+        logger.info(f"  AA={final_metrics.get('AA', 0):.2f}, AIA={final_metrics.get('AIA', 0):.2f}, "
+                   f"FM={final_metrics.get('FM', 0):.2f}, BWT={final_metrics.get('BWT', 0):.2f}")
         
-        logger.info(f"Continual Metrics after learning {k} tasks: {final_metrics}")
+        # 2. Chunk F1（仅对序列任务有效，句级任务回退到acc）
+        logger.info(f"📈 Metric 2: Chunk-level F1 (for sequence tasks)")
+        final_metrics_chunk_f1 = compute_multimodal_transfer_metrics(cm, k, task_names, matrix_type='chunk_f1')
+        similarity_analysis_chunk = analyze_task_similarity_transfer(cm, task_names, matrix_type='chunk_f1')
+        if similarity_analysis_chunk:
+            final_metrics_chunk_f1.update(similarity_analysis_chunk)
+        logger.info(f"  AA={final_metrics_chunk_f1.get('AA', 0):.2f}, AIA={final_metrics_chunk_f1.get('AIA', 0):.2f}, "
+                   f"FM={final_metrics_chunk_f1.get('FM', 0):.2f}, BWT={final_metrics_chunk_f1.get('BWT', 0):.2f}")
+        
+        # 3. Token Micro F1 (no O)（仅对序列任务有效，句级任务回退到acc）
+        logger.info(f"📈 Metric 3: Token-level Micro F1 (no O, for sequence tasks)")
+        final_metrics_token_micro_f1_no_o = compute_multimodal_transfer_metrics(cm, k, task_names, matrix_type='token_micro_f1_no_o')
+        similarity_analysis_token = analyze_task_similarity_transfer(cm, task_names, matrix_type='token_micro_f1_no_o')
+        if similarity_analysis_token:
+            final_metrics_token_micro_f1_no_o.update(similarity_analysis_token)
+        logger.info(f"  AA={final_metrics_token_micro_f1_no_o.get('AA', 0):.2f}, AIA={final_metrics_token_micro_f1_no_o.get('AIA', 0):.2f}, "
+                   f"FM={final_metrics_token_micro_f1_no_o.get('FM', 0):.2f}, BWT={final_metrics_token_micro_f1_no_o.get('BWT', 0):.2f}")
+        
+        logger.info("="*80)
     
-    # 合并训练指标和持续学习指标
+    # ✨ 合并训练指标和持续学习指标（三种指标）
     session_info["final_metrics"] = {
         "best_metrics": train_result["best_metrics"],
-        "continual_metrics": final_metrics
+        "continual_metrics": final_metrics,  # 默认指标（acc）
+        "continual_metrics_chunk_f1": final_metrics_chunk_f1,  # Chunk F1
+        "continual_metrics_token_micro_f1_no_o": final_metrics_token_micro_f1_no_o  # Token Micro F1 (no O)
     }
     
     # ========== 12.5) 特征聚类可视化 ==========
@@ -459,7 +538,8 @@ def train(args, logger, all_tasks=[]):
                     split='dev',  # 使用验证集
                     max_samples=getattr(args, 'vis_max_samples', 2000),
                     show_predictions=True,  # 生成预测对比图
-                    config_name=config_name  # 传递配置文件名，避免覆盖
+                    config_name=config_name,  # 传递配置文件名，避免覆盖
+                    plot_dual_metrics=True  # ✨ 为序列任务生成两种指标的图
                 )
             else:
                 # 使用基础版：仅生成真实标签图
@@ -483,7 +563,8 @@ def train(args, logger, all_tasks=[]):
                 visualize_all_tasks_evolution(
                     save_dir=vis_dir,
                     split='dev',
-                    method='tsne'
+                    method='tsne',
+                    config_name=config_name  # ✨ 传递config_name避免覆盖
                 )
             
             logger.info("✓ 特征聚类可视化完成\n")
