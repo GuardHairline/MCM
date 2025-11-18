@@ -1,0 +1,37 @@
+{
+  "description": "6账号Ablation Study总索引",
+  "total_accounts": 3,
+  "total_configs": 6,
+  "accounts": {
+    "account_1": {
+      "name": "Account 1 - MATE (Baseline vs CRF)",
+      "task": "mate",
+      "ablations": [
+        "baseline",
+        "crf_only"
+      ],
+      "configs_count": 2,
+      "directory": "scripts\\configs\\kaggle_ablation\\account_1"
+    },
+    "account_2": {
+      "name": "Account 2 - MNER (Baseline vs CRF)",
+      "task": "mner",
+      "ablations": [
+        "baseline",
+        "crf_only"
+      ],
+      "configs_count": 2,
+      "directory": "scripts\\configs\\kaggle_ablation\\account_2"
+    },
+    "account_3": {
+      "name": "Account 3 - MABSA (Baseline vs CRF)",
+      "task": "mabsa",
+      "ablations": [
+        "baseline",
+        "crf_only"
+      ],
+      "configs_count": 2,
+      "directory": "scripts\\configs\\kaggle_ablation\\account_3"
+    }
+  }
+}

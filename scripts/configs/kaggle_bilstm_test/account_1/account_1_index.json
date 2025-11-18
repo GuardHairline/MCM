@@ -1,0 +1,20 @@
+{
+  "account_id": "account_1",
+  "account_name": "Account 1 - MATE BiLSTM测试",
+  "task": "mate",
+  "config_types": [
+    "config_default"
+  ],
+  "description": "MATE任务：测试三种BiLSTM配置",
+  "estimated_time_minutes": 180,
+  "total_configs": 1,
+  "configs": [
+    {
+      "file": "kaggle_bilstm_config_default_twitter2015_mate.json",
+      "path": "scripts/configs/kaggle_bilstm_test/account_1/kaggle_bilstm_config_default_twitter2015_mate.json",
+      "task": "mate",
+      "config_type": "config_default",
+      "dataset": "twitter2015"
+    }
+  ]
+}

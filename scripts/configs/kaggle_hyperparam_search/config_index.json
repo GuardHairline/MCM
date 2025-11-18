@@ -1,0 +1,343 @@
+{
+  "total_configs": 39,
+  "tasks": [
+    "mate",
+    "mner",
+    "mabsa"
+  ],
+  "strategies": [
+    "none"
+  ],
+  "hyperparameter_grid": {
+    "lr": [
+      5e-05,
+      1e-05,
+      5e-06
+    ],
+    "step_size": [
+      5,
+      10,
+      15
+    ],
+    "gamma": [
+      0.3,
+      0.5,
+      0.7
+    ]
+  },
+  "kaggle_optimized": true,
+  "configs": [
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mate_none_lr5e05_ss5_g0.5.json",
+      "task": "mate",
+      "strategy": "none",
+      "lr": 5e-05,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mate_none_lr5e05_ss10_g0.5.json",
+      "task": "mate",
+      "strategy": "none",
+      "lr": 5e-05,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mate_none_lr5e05_ss15_g0.5.json",
+      "task": "mate",
+      "strategy": "none",
+      "lr": 5e-05,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mate_none_lr1e05_ss5_g0.5.json",
+      "task": "mate",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mate_none_lr1e05_ss10_g0.5.json",
+      "task": "mate",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mate_none_lr1e05_ss15_g0.5.json",
+      "task": "mate",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mate_none_lr5e06_ss5_g0.5.json",
+      "task": "mate",
+      "strategy": "none",
+      "lr": 5e-06,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mate_none_lr5e06_ss10_g0.5.json",
+      "task": "mate",
+      "strategy": "none",
+      "lr": 5e-06,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mate_none_lr5e06_ss15_g0.5.json",
+      "task": "mate",
+      "strategy": "none",
+      "lr": 5e-06,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mate_none_lr1e05_ss10_g0.3.json",
+      "task": "mate",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.3
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mate_none_lr1e05_ss10_g0.7.json",
+      "task": "mate",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.7
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mate_none_lr5e05_ss5_g0.7.json",
+      "task": "mate",
+      "strategy": "none",
+      "lr": 5e-05,
+      "step_size": 5,
+      "gamma": 0.7
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mate_none_lr5e06_ss15_g0.3.json",
+      "task": "mate",
+      "strategy": "none",
+      "lr": 5e-06,
+      "step_size": 15,
+      "gamma": 0.3
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mner_none_lr5e05_ss5_g0.5.json",
+      "task": "mner",
+      "strategy": "none",
+      "lr": 5e-05,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mner_none_lr5e05_ss10_g0.5.json",
+      "task": "mner",
+      "strategy": "none",
+      "lr": 5e-05,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mner_none_lr5e05_ss15_g0.5.json",
+      "task": "mner",
+      "strategy": "none",
+      "lr": 5e-05,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mner_none_lr1e05_ss5_g0.5.json",
+      "task": "mner",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mner_none_lr1e05_ss10_g0.5.json",
+      "task": "mner",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mner_none_lr1e05_ss15_g0.5.json",
+      "task": "mner",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mner_none_lr5e06_ss5_g0.5.json",
+      "task": "mner",
+      "strategy": "none",
+      "lr": 5e-06,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mner_none_lr5e06_ss10_g0.5.json",
+      "task": "mner",
+      "strategy": "none",
+      "lr": 5e-06,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mner_none_lr5e06_ss15_g0.5.json",
+      "task": "mner",
+      "strategy": "none",
+      "lr": 5e-06,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mner_none_lr1e05_ss10_g0.3.json",
+      "task": "mner",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.3
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mner_none_lr1e05_ss10_g0.7.json",
+      "task": "mner",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.7
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mner_none_lr5e05_ss5_g0.7.json",
+      "task": "mner",
+      "strategy": "none",
+      "lr": 5e-05,
+      "step_size": 5,
+      "gamma": 0.7
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mner_none_lr5e06_ss15_g0.3.json",
+      "task": "mner",
+      "strategy": "none",
+      "lr": 5e-06,
+      "step_size": 15,
+      "gamma": 0.3
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mabsa_none_lr5e05_ss5_g0.5.json",
+      "task": "mabsa",
+      "strategy": "none",
+      "lr": 5e-05,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mabsa_none_lr5e05_ss10_g0.5.json",
+      "task": "mabsa",
+      "strategy": "none",
+      "lr": 5e-05,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mabsa_none_lr5e05_ss15_g0.5.json",
+      "task": "mabsa",
+      "strategy": "none",
+      "lr": 5e-05,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mabsa_none_lr1e05_ss5_g0.5.json",
+      "task": "mabsa",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mabsa_none_lr1e05_ss10_g0.5.json",
+      "task": "mabsa",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mabsa_none_lr1e05_ss15_g0.5.json",
+      "task": "mabsa",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mabsa_none_lr5e06_ss5_g0.5.json",
+      "task": "mabsa",
+      "strategy": "none",
+      "lr": 5e-06,
+      "step_size": 5,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mabsa_none_lr5e06_ss10_g0.5.json",
+      "task": "mabsa",
+      "strategy": "none",
+      "lr": 5e-06,
+      "step_size": 10,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mabsa_none_lr5e06_ss15_g0.5.json",
+      "task": "mabsa",
+      "strategy": "none",
+      "lr": 5e-06,
+      "step_size": 15,
+      "gamma": 0.5
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mabsa_none_lr1e05_ss10_g0.3.json",
+      "task": "mabsa",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.3
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mabsa_none_lr1e05_ss10_g0.7.json",
+      "task": "mabsa",
+      "strategy": "none",
+      "lr": 1e-05,
+      "step_size": 10,
+      "gamma": 0.7
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mabsa_none_lr5e05_ss5_g0.7.json",
+      "task": "mabsa",
+      "strategy": "none",
+      "lr": 5e-05,
+      "step_size": 5,
+      "gamma": 0.7
+    },
+    {
+      "file": "scripts/configs/kaggle_hyperparam_search/kaggle_twitter2015_mabsa_none_lr5e06_ss15_g0.3.json",
+      "task": "mabsa",
+      "strategy": "none",
+      "lr": 5e-06,
+      "step_size": 15,
+      "gamma": 0.3
+    }
+  ]
+}

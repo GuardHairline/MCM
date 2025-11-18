@@ -1,11 +1,21 @@
-matplotlib==3.8.4
-numpy==1.26.4
-openpyxl==3.1.5
-Pillow==10.3.0
-pytorch_crf==0.7.2
-scikit_learn==1.5.2
+# Core ML libraries
 torch==2.3.1
 torchvision==0.18.1
 transformers==4.30.2
+
+# CRF layer for sequence labeling (MATE, MNER, MABSA)
+# 用于序列标注任务的CRF层修复
+pytorch_crf==0.7.2
+
+# Data processing
+numpy==1.26.4
+scikit_learn==1.5.2
+Pillow==10.3.0
+
+# Tokenization
 sentencepiece==0.1.99
 protobuf==3.20.3
+
+# Visualization and export
+matplotlib==3.8.4
+openpyxl==3.1.5

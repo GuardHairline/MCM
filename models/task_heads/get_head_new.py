@@ -28,13 +28,15 @@ def get_head(task, base_model, args, label_emb: GlobalLabelEmbedding = None):
         num_labels = task_num_labels.get(task, 3)
     
     if task in ["mate", "mner", "mabsa"]:           # token-level
+        # 从args获取use_crf参数（默认启用）
+        use_crf = bool(getattr(args, 'use_crf', 1))
         return TokenLabelHead(
             input_dim=base_model.fusion_output_dim,
             hidden_dim=getattr(args, 'span_hidden', 256),
             num_labels=num_labels,
             label_emb=label_emb,
             task_name=task,
-            # use_crf=(args.num_labels > 3),
+            use_crf=use_crf,
         )
     elif task == "masc":                             # sentence-level
         return LabelAttentionSentHead(

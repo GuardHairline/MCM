@@ -32,3 +32,9 @@ echo "下一步："
 echo "  bash scripts/configs/autodl_config/test_single_autodl.sh"
 echo ""
 
+
+
+
+
+
+

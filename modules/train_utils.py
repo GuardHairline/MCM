@@ -24,6 +24,7 @@ from continual.metrics import ContinualMetrics
 from continual.experience_replay_fixed import ExperienceReplayMemory, make_dynamic_replay_condition
 from datasets.get_dataset import get_dataset
 import argparse
+from transformers import get_linear_schedule_with_warmup
 
 
 class Full_Model(nn.Module):
@@ -651,16 +652,121 @@ def is_sequence_task(task_name: str) -> bool:
 
 
 def create_optimizer(model, args):
-    """创建优化器"""
+    """
+    创建优化器（支持分层学习率）
+    
+    如果模型使用BiLSTM-CRF，会自动使用分层学习率：
+    - Text Encoder: args.lr (默认1e-5)
+    - BiLSTM/Classifier: args.lstm_lr (默认1e-4)
+    - CRF: args.crf_lr (默认1e-3)
+    """
     if args.moe_adapters:
         optim_params = [p for p in model.parameters() if p.requires_grad]
+        optimizer = torch.optim.AdamW(optim_params, lr=args.lr, weight_decay=args.weight_decay)
     else:
-        optim_params = model.parameters()
+        # 检查是否使用BiLSTM（需要分层学习率）
+        use_bilstm = getattr(args, 'use_bilstm', 0)
+        lstm_lr = getattr(args, 'lstm_lr', 1e-4)
+        crf_lr = getattr(args, 'crf_lr', 1e-3)
+        
+        if use_bilstm and hasattr(model, 'task_heads') and len(model.task_heads) > 0:
+            # 分层学习率
+            param_groups = []
+            
+            # 1. Text Encoder参数（低学习率）
+            if hasattr(model, 'base_model'):
+                if hasattr(model.base_model, 'text_model'):
+                    param_groups.append({
+                        'params': model.base_model.text_model.parameters(),
+                        'lr': args.lr,
+                        'weight_decay': args.weight_decay
+                    })
+                if hasattr(model.base_model, 'image_model'):
+                    param_groups.append({
+                        'params': model.base_model.image_model.parameters(),
+                        'lr': args.lr,
+                        'weight_decay': args.weight_decay
+                    })
+                if hasattr(model.base_model, 'fusion_layer'):
+                    param_groups.append({
+                        'params': model.base_model.fusion_layer.parameters(),
+                        'lr': args.lr,
+                        'weight_decay': args.weight_decay
+                    })
+            
+            # 2. Task Heads参数（分层设置）
+            for head_name, head in model.task_heads.items():
+                # BiLSTM层（中等学习率）
+                if hasattr(head, 'bilstm'):
+                    param_groups.append({
+                        'params': head.bilstm.parameters(),
+                        'lr': lstm_lr,
+                        'weight_decay': args.weight_decay
+                    })
+                # Classifier层（中等学习率）
+                if hasattr(head, 'classifier'):
+                    param_groups.append({
+                        'params': head.classifier.parameters(),
+                        'lr': lstm_lr,
+                        'weight_decay': args.weight_decay
+                    })
+                # CRF层（高学习率，无weight decay）
+                if hasattr(head, 'crf') and head.crf is not None:
+                    param_groups.append({
+                        'params': head.crf.parameters(),
+                        'lr': crf_lr,
+                        'weight_decay': 0.0  # CRF不使用weight decay
+                    })
+                # Dropout层不需要单独设置
+                
+                # 其他层（默认学习率）
+                other_params = []
+                for name, param in head.named_parameters():
+                    if not any(key in name for key in ['bilstm', 'classifier', 'crf']):
+                        other_params.append(param)
+                if other_params:
+                    param_groups.append({
+                        'params': other_params,
+                        'lr': args.lr,
+                        'weight_decay': args.weight_decay
+                    })
+            
+            optimizer = torch.optim.AdamW(param_groups)
+        else:
+            # 标准优化器（单一学习率）
+            optim_params = model.parameters()
+            optimizer = torch.optim.AdamW(optim_params, lr=args.lr, weight_decay=args.weight_decay)
     
-    optimizer = torch.optim.AdamW(optim_params, lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.gamma)
+    return optimizer
+
+
+def create_scheduler(optimizer, args, num_training_steps: int):
+    """
+    创建学习率调度器
+    """
+    if optimizer is None:
+        return None
     
-    return optimizer, scheduler
+    scheduler_type = getattr(args, "lr_scheduler", "linear")
+    
+    if scheduler_type == "linear":
+        if num_training_steps <= 0:
+            return None
+        warmup_ratio = max(0.0, getattr(args, "warmup_ratio", 0.0))
+        warmup_steps = int(num_training_steps * warmup_ratio)
+        return get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=num_training_steps
+        )
+    elif scheduler_type == "step":
+        step_size = getattr(args, "step_size", 0)
+        if step_size and step_size > 0:
+            gamma = getattr(args, "gamma", 0.5)
+            return torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
+        return None
+    else:
+        return None
 
 
 def create_ddas_optimizer(model, args):

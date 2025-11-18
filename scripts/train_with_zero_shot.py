@@ -42,6 +42,13 @@ def cleanup_experiment_files(config: Dict[str, Any], global_params: Dict[str, An
         global_params: 全局参数字典
     """
     try:
+        save_checkpoints = global_params.get("save_checkpoints", False)
+        if save_checkpoints:
+            print("="*60)
+            print("🧹 清理已跳过：save_checkpoints=1，保留所有模型文件")
+            print("="*60 + "\n")
+            return
+
         print("="*60)
         print("🧹 开始清理实验文件...")
         print("="*60)
@@ -61,8 +68,8 @@ def cleanup_experiment_files(config: Dict[str, Any], global_params: Dict[str, An
         print(f"📝 识别模式: {base_name}")
         print(f"📁 检查目录: {checkpoint_dir}")
         
-        # 需要删除的文件模式
-        patterns_to_delete = [
+        # 需要处理的文件模式
+        patterns_to_handle = [
             f"{base_name}.pt",                      # 主模型文件
             f"{base_name}_*.pt",                    # 其他相关模型文件
             f"model_{base_name}*.pt",               # 带model前缀的文件
@@ -70,11 +77,10 @@ def cleanup_experiment_files(config: Dict[str, Any], global_params: Dict[str, An
             f"label_embedding_{base_name}.pt",      # 标签嵌入文件
         ]
         
-        deleted_count = 0
-        kept_count = 0
+        processed_count = 0
         
-        # 在checkpoint_dir中查找并删除匹配的文件
-        for pattern in patterns_to_delete:
+        # 在checkpoint_dir中查找并处理匹配的文件
+        for pattern in patterns_to_handle:
             full_pattern = os.path.join(checkpoint_dir, pattern)
             matching_files = glob.glob(full_pattern)
             
@@ -85,11 +91,9 @@ def cleanup_experiment_files(config: Dict[str, Any], global_params: Dict[str, An
                     try:
                         os.remove(file_path)
                         print(f"  ✓ 删除: {file_name}")
-                        deleted_count += 1
-                    except Exception as e:
-                        print(f"  ✗ 删除失败: {file_name} ({e})")
-                else:
-                    kept_count += 1
+                        processed_count += 1
+                    except Exception as del_err:
+                        print(f"  ✗ 删除失败: {file_name} ({del_err})")
         
         # 清理EWC参数
         ewc_dir = global_params.get("ewc_dir", "")
@@ -100,9 +104,9 @@ def cleanup_experiment_files(config: Dict[str, Any], global_params: Dict[str, An
                     try:
                         os.remove(file_path)
                         print(f"  ✓ 删除EWC: {os.path.basename(file_path)}")
-                        deleted_count += 1
-                    except Exception as e:
-                        print(f"  ✗ 删除EWC失败: {os.path.basename(file_path)} ({e})")
+                        processed_count += 1
+                    except Exception as del_err:
+                        print(f"  ✗ 删除EWC失败: {os.path.basename(file_path)} ({del_err})")
         
         # 清理GEM记忆
         gem_dir = global_params.get("gem_mem_dir", "")
@@ -113,11 +117,11 @@ def cleanup_experiment_files(config: Dict[str, Any], global_params: Dict[str, An
                     try:
                         os.remove(file_path)
                         print(f"  ✓ 删除GEM: {os.path.basename(file_path)}")
-                        deleted_count += 1
-                    except Exception as e:
-                        print(f"  ✗ 删除GEM失败: {os.path.basename(file_path)} ({e})")
+                        processed_count += 1
+                    except Exception as del_err:
+                        print(f"  ✗ 删除GEM失败: {os.path.basename(file_path)} ({del_err})")
         
-        print(f"\n✅ 清理完成: 删除 {deleted_count} 个文件")
+        print(f"\n✅ 清理完成: 删除 {processed_count} 个文件")
         print("="*60 + "\n")
         
     except Exception as e:
@@ -141,8 +145,8 @@ def run_single_task(task_config: Dict[str, Any], global_params: Dict[str, Any],
     args.session_name = task_config["session_name"]
     args.task_config_file = global_params.get("task_config_file", "")
     args.train_info_json = global_params["train_info_json"]
-    args.output_model_path = global_params["output_model_path"]
-    args.pretrained_model_path = pretrained_model_path
+    args.output_model_path = task_config.get("output_model_path", global_params["output_model_path"])
+    args.pretrained_model_path = task_config.get("pretrained_model_path", pretrained_model_path)
     
     # 数据参数
     args.data_dir = global_params.get("data_dir", "data")
@@ -161,6 +165,7 @@ def run_single_task(task_config: Dict[str, Any], global_params: Dict[str, Any],
     args.hidden_dim = task_config["hidden_dim"]
     args.dropout_prob = task_config["dropout_prob"]
     args.num_labels = task_config["num_labels"]
+    args.enable_bilstm_head = int(task_config.get("enable_bilstm_head", global_params.get("enable_bilstm_head", 1)))
     
     # 训练参数
     args.epochs = task_config["epochs"]
@@ -203,6 +208,13 @@ def run_single_task(task_config: Dict[str, Any], global_params: Dict[str, Any],
     args.triaffine = task_config.get("triaffine", 1)
     args.span_hidden = task_config.get("span_hidden", 256)
     
+    # CRF和Span Loss参数（兼容布尔值和整数）
+    args.use_crf = int(task_config.get("use_crf", 1))  # 转换为int，默认启用
+    args.use_span_loss = int(task_config.get("use_span_loss", 1))  # 转换为int，默认启用
+    args.boundary_weight = task_config.get("boundary_weight", 0.2)
+    args.span_f1_weight = task_config.get("span_f1_weight", 0.0)
+    args.transition_weight = task_config.get("transition_weight", 0.0)
+    
     # 图平滑参数
     args.graph_smooth = task_config.get("graph_smooth", 1)
     args.graph_tau = task_config.get("graph_tau", 0.5)
@@ -210,6 +222,7 @@ def run_single_task(task_config: Dict[str, Any], global_params: Dict[str, Any],
     # 目录参数
     args.ewc_dir = global_params["ewc_dir"]
     args.gem_mem_dir = global_params["gem_mem_dir"]
+    args.save_checkpoints = int(global_params.get("save_checkpoints", 0))
     
     # 日志参数
     args.log_file = None
@@ -232,7 +245,7 @@ def run_single_task(task_config: Dict[str, Any], global_params: Dict[str, Any],
         best_metrics = train(args, logger, all_tasks=all_tasks)
         print(f"Task {task_idx + 1} completed successfully")
         print(f"Best metrics: {best_metrics}")
-        return global_params["output_model_path"]
+        return args.output_model_path
     except Exception as e:
         print(f"Task {task_idx + 1} failed with error: {e}")
         raise
@@ -257,16 +270,26 @@ def main():
     global_params = config["global_params"]
     global_params["task_config_file"] = args.config  # 添加配置文件路径
     
+    global_params["kaggle_mode"] = config.get("kaggle_mode", global_params.get("kaggle_mode", False))
+    
     # 确定任务范围
     start_idx = args.start_task
     end_idx = args.end_task if args.end_task is not None else len(tasks)
+    # 确保end_idx不超过实际任务数量
+    end_idx = min(end_idx, len(tasks))
     
     print(f"Total tasks: {len(tasks)}")
-    print(f"Running tasks: {start_idx + 1} to {end_idx}")
-    print(f"Environment: {config['env']}")
-    print(f"Strategy: {config['strategy']}")
-    print(f"Mode: {config['mode_suffix']}")
-    print(f"Dataset: {config['dataset']}")
+    print(f"Running tasks: {start_idx + 1} to {end_idx} (requested: {args.end_task})")
+    
+    # 打印配置信息（兼容不同配置格式）
+    if "env" in config:
+        print(f"Environment: {config['env']}")
+    if "strategy" in config:
+        print(f"Strategy: {config['strategy']}")
+    if "mode_suffix" in config:
+        print(f"Mode: {config['mode_suffix']}")
+    if "dataset" in config:
+        print(f"Dataset: {config['dataset']}")
     print(f"Label embedding: {'Yes' if config.get('use_label_embedding', False) else 'No'}")
     
     # 确保目录存在
@@ -288,17 +311,84 @@ def main():
         print(f"Model saved to: {model_path}")
         print("-" * 50)
     
-    print("All tasks completed successfully!")
+    print("\n" + "="*80)
+    print("✅ 所有任务训练完成！")
+    print("="*80)
     print(f"Final model: {pretrained_model_path}")
     print(f"Training info: {global_params['train_info_json']}")
     
-    # ========== 自动绘制acc热力图 ==========
-    from utils.plot import plot_acc_matrix_from_config
-    plot_acc_matrix_from_config(
-        config_file_path=args.config,
-        train_info_file_path=global_params['train_info_json'],
-        save_dir="checkpoints/acc_matrix"
-    )
+    # ========== 自动绘制热力图 ==========
+    try:
+        print("\n" + "="*80)
+        print("📊 自动绘制持续学习热力图")
+        print("="*80)
+        
+        from utils.plot import plot_accuracy_matrix_from_train_info
+        import json
+        import os
+        
+        train_info_path = global_params['train_info_json']
+        output_dir = os.path.dirname(train_info_path)
+        
+        if os.path.exists(train_info_path):
+            # 读取train_info
+            with open(train_info_path, 'r', encoding='utf-8') as f:
+                train_info = json.load(f)
+            
+            # 从train_info文件名提取配置ID（避免不同配置的图片互相覆盖）
+            train_info_basename = os.path.basename(train_info_path)  # e.g., train_info_kaggle_mate_twitter2015_config_default.json
+            config_id = train_info_basename.replace('train_info_', '').replace('.json', '')  # e.g., kaggle_mate_twitter2015_config_default
+            
+            # 绘制所有三种指标的热力图
+            print("\n1. 绘制 Accuracy (Acc) 热力图...")
+            if 'acc_matrix' in train_info and train_info['acc_matrix']:
+                acc_save_path = os.path.join(output_dir, f'accuracy_heatmap_{config_id}.png')
+                plot_accuracy_matrix_from_train_info(
+                    train_info_path=train_info_path,
+                    output_path=acc_save_path,
+                    show_values=True,
+                    metric='acc'
+                )
+                print(f"   ✓ Accuracy热力图: {acc_save_path}")
+            else:
+                print("   ⚠️ acc_matrix 不存在或为空")
+            
+            # 绘制 Chunk F1 热力图
+            print("\n2. 绘制 Chunk F1 (Span F1) 热力图...")
+            if 'chunk_f1_matrix' in train_info and train_info['chunk_f1_matrix']:
+                chunk_f1_save_path = os.path.join(output_dir, f'chunk_f1_heatmap_{config_id}.png')
+                plot_accuracy_matrix_from_train_info(
+                    train_info_path=train_info_path,
+                    output_path=chunk_f1_save_path,
+                    show_values=True,
+                    metric='chunk_f1'
+                )
+                print(f"   ✓ Chunk F1热力图: {chunk_f1_save_path}")
+            else:
+                print("   ⚠️ chunk_f1_matrix 不存在或为空")
+            
+            # 绘制 Token Micro F1 热力图
+            print("\n3. 绘制 Token Micro F1 (no O) 热力图...")
+            if 'token_micro_f1_no_o_matrix' in train_info and train_info['token_micro_f1_no_o_matrix']:
+                token_f1_save_path = os.path.join(output_dir, f'token_micro_f1_heatmap_{config_id}.png')
+                plot_accuracy_matrix_from_train_info(
+                    train_info_path=train_info_path,
+                    output_path=token_f1_save_path,
+                    show_values=True,
+                    metric='token_micro_f1_no_o'
+                )
+                print(f"   ✓ Token Micro F1热力图: {token_f1_save_path}")
+            else:
+                print("   ⚠️ token_micro_f1_no_o_matrix 不存在或为空")
+            
+            print("\n✅ 热力图绘制完成！")
+        else:
+            print(f"⚠️ train_info文件不存在: {train_info_path}")
+            
+    except Exception as e:
+        print(f"⚠️ 绘制热力图失败: {e}")
+        import traceback
+        traceback.print_exc()
     
     # ========== 清理实验文件 ==========
     cleanup_experiment_files(config, global_params)

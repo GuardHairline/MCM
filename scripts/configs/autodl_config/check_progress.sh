@@ -102,3 +102,9 @@ echo "查看完整日志: tail -f $PROJECT_ROOT/checkpoints/autodl/log/autodl_ru
 echo "GPU状态: nvidia-smi"
 echo ""
 
+
+
+
+
+
+

@@ -271,6 +271,133 @@ def plot_acc_matrix_from_config(config_file_path, train_info_file_path, save_dir
         return None
 
 
+def plot_accuracy_matrix_from_train_info(
+    train_info_path: str,
+    output_path: str = None,
+    metric: str = "acc",
+    show_values: bool = True,
+    cmap: str = "viridis",
+    value_range = (0, 100),
+):
+    """
+    Render a continual-learning heatmap directly from a train_info.json file.
+
+    Args:
+        train_info_path: Path to the JSON produced after training.
+        output_path: Where to save the figure. If None, derive from JSON path.
+        metric: One of {'acc', 'chunk_f1', 'token_micro_f1_no_o'} or a custom key
+                already present in train_info (e.g. 'acc_matrix').
+        show_values: Whether to draw the numeric value inside each cell.
+        cmap: Matplotlib colormap.
+        value_range: Tuple (vmin, vmax); set to None for automatic scaling.
+    """
+    metric_alias = {
+        "acc": ("acc_matrix", "Accuracy"),
+        "chunk_f1": ("chunk_f1_matrix", "Chunk-level F1"),
+        "token_micro_f1_no_o": ("token_micro_f1_no_o_matrix", "Token Micro F1 (no O)"),
+    }
+
+    metric_key, metric_title = metric_alias.get(metric, (metric, metric))
+
+    if not os.path.exists(train_info_path):
+        raise FileNotFoundError(f"train_info file not found: {train_info_path}")
+
+    with open(train_info_path, "r", encoding="utf-8") as f:
+        train_info = json.load(f)
+
+    matrix_data = train_info.get(metric_key)
+    sessions = train_info.get("sessions", [])
+
+    if not matrix_data:
+        raise ValueError(f"Metric '{metric_key}' not found or empty in {train_info_path}")
+    if not sessions:
+        raise ValueError(f"No 'sessions' information found in {train_info_path}")
+
+    n = len(matrix_data)
+    matrix = np.full((n, n), np.nan)
+
+    for i, row in enumerate(matrix_data):
+        if row is None:
+            continue
+        numeric_row = []
+        for value in row:
+            if value is None:
+                numeric_row.append(np.nan)
+            else:
+                try:
+                    numeric_row.append(float(value))
+                except (TypeError, ValueError):
+                    numeric_row.append(np.nan)
+        matrix[i, :len(numeric_row)] = numeric_row
+
+    if value_range is None:
+        valid_values = matrix[~np.isnan(matrix)]
+        if valid_values.size:
+            vmin, vmax = float(np.min(valid_values)), float(np.max(valid_values))
+        else:
+            vmin, vmax = 0.0, 1.0
+    else:
+        vmin, vmax = value_range
+
+    fig, ax = plt.subplots(figsize=(8, 7))
+    im = ax.imshow(matrix, cmap=cmap, interpolation="nearest", vmin=vmin, vmax=vmax)
+    fig.colorbar(im, ax=ax, label=f"{metric_title} (%)")
+
+    session_names = []
+    for idx in range(n):
+        if idx < len(sessions):
+            session_names.append(sessions[idx].get("session_name", f"T{idx+1}"))
+        else:
+            session_names.append(f"T{idx+1}")
+
+    ax.set_xticks(np.arange(n))
+    ax.set_xticklabels(session_names, rotation=45, ha="right")
+    ax.set_yticks(np.arange(n))
+    ax.set_yticklabels(session_names)
+    ax.set_xlabel("Test Task")
+    ax.set_ylabel("Train Task")
+    ax.set_title(f"{metric_title} Matrix", fontsize=14, fontweight="bold")
+
+    if show_values:
+        for i in range(n):
+            replay_sessions = []
+            if i < len(sessions):
+                replay_sessions = sessions[i].get("details", {}).get("replay_sessions", [])
+            for j in range(n):
+                value = matrix[i, j]
+                if np.isnan(value):
+                    continue
+                if j < len(sessions):
+                    test_session_name = sessions[j].get("session_name", "")
+                else:
+                    test_session_name = f"T{j+1}"
+                value_str = f"{value:.1f}"
+                if test_session_name in replay_sessions:
+                    value_str += "*"
+                # Choose text color based on normalized intensity for readability
+                if vmax - vmin > 0:
+                    normalized = (value - vmin) / (vmax - vmin)
+                else:
+                    normalized = 0.0
+                text_color = "white" if normalized < 0.5 else "black"
+                ax.text(j, i, value_str, ha="center", va="center",
+                        color=text_color, fontsize=10, fontweight="bold")
+
+    fig.tight_layout()
+
+    if output_path is None:
+        base = Path(train_info_path)
+        default_name = f"{base.stem}_{metric_key}_heatmap.png"
+        output_path = str(base.with_name(default_name))
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    logger.info(f"Heatmap saved to {output_path}")
+    return output_path
+
+
 def main():
     os.makedirs("checkpoints", exist_ok=True)
 

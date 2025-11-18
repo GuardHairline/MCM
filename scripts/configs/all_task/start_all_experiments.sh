@@ -1,9 +1,9 @@
-这些爱#!/bin/bash
+#!/bin/bash
 #===============================================================================
 # 全任务序列实验 - 后台启动脚本
 #===============================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}") " && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MAIN_SCRIPT="$SCRIPT_DIR/run_all_experiments.sh"
 LOG_DIR="scripts/configs/all_task/logs"
 MASTER_LOG="scripts/configs/all_task/logs/master_$(date +%Y%m%d_%H%M%S).log"

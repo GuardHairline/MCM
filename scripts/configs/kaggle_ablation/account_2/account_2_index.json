@@ -1,0 +1,28 @@
+{
+  "account_id": "account_2",
+  "account_name": "Account 2 - MNER (Baseline vs CRF)",
+  "task": "mner",
+  "ablations": [
+    "baseline",
+    "crf_only"
+  ],
+  "description": "MNER任务：对比baseline和CRF效果",
+  "estimated_time_minutes": 400,
+  "total_configs": 2,
+  "configs": [
+    {
+      "file": "kaggle_baseline_twitter2015_mner.json",
+      "path": "scripts/configs/kaggle_ablation/account_2/kaggle_baseline_twitter2015_mner.json",
+      "task": "mner",
+      "ablation_type": "baseline",
+      "dataset": "twitter2015"
+    },
+    {
+      "file": "kaggle_crf_only_twitter2015_mner.json",
+      "path": "scripts/configs/kaggle_ablation/account_2/kaggle_crf_only_twitter2015_mner.json",
+      "task": "mner",
+      "ablation_type": "crf_only",
+      "dataset": "twitter2015"
+    }
+  ]
+}

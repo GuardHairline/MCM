@@ -49,10 +49,22 @@ def create_train_parser() -> argparse.ArgumentParser:
                        help="Model mode")
     parser.add_argument("--hidden_dim", type=int, default=768,
                        help="Hidden dimension")
-    parser.add_argument("--dropout_prob", type=float, default=0.1,
+    parser.add_argument("--dropout_prob", type=float, default=0.3,
                        help="Dropout probability in Full_Model")
     parser.add_argument("--num_labels", type=int, default=-1,
                        help="Number of labels (auto-detect if -1)")
+    
+    # BiLSTM-CRF参数
+    parser.add_argument("--use_bilstm", type=int, default=1,
+                       help="Use BiLSTM layer in task heads (1=True, 0=False, default=1)")
+    parser.add_argument("--enable_bilstm_head", type=int, default=1,
+                       help="Global switch for BiLSTM heads (1=enabled, 0=disable even if config requests)")
+    parser.add_argument("--use_crf", type=int, default=1,
+                       help="Use CRF layer for sequence labeling (1=True, 0=False, default=1)")
+    parser.add_argument("--bilstm_hidden_size", type=int, default=256,
+                       help="Hidden size of BiLSTM layer (default=256)")
+    parser.add_argument("--bilstm_num_layers", type=int, default=2,
+                       help="Number of BiLSTM layers (default=2)")
     
     # ========== 训练参数 ==========
     parser.add_argument("--epochs", type=int, default=20,
@@ -60,17 +72,28 @@ def create_train_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch_size", type=int, default=8,
                        help="Batch size")
     parser.add_argument("--lr", type=float, default=5e-5,
-                       help="Learning rate")
+                       help="Learning rate for text encoder")
+    parser.add_argument("--lstm_lr", type=float, default=1e-4,
+                       help="Learning rate for BiLSTM layer (if use_bilstm=True)")
+    parser.add_argument("--crf_lr", type=float, default=1e-3,
+                       help="Learning rate for CRF layer (if use_bilstm=True and use_crf=True)")
     parser.add_argument("--weight_decay", type=float, default=1e-5,
                        help="Weight decay (L2 regularization)")
-    parser.add_argument("--step_size", type=int, default=10,
-                       help="LR scheduler step size")
+    parser.add_argument("--step_size", type=int, default=0,
+                       help="StepLR step size (<=0 to disable)")
     parser.add_argument("--gamma", type=float, default=0.5,
-                       help="LR scheduler gamma")
+                       help="LR scheduler gamma for StepLR")
+    parser.add_argument("--lr_scheduler", type=str, default="linear",
+                       choices=["linear", "step", "none"],
+                       help="Type of LR scheduler to use")
+    parser.add_argument("--warmup_ratio", type=float, default=0.1,
+                       help="Warmup ratio for linear scheduler (0 to disable)")
     parser.add_argument("--patience", type=int, default=5,
                        help="Patience for early stopping")
     parser.add_argument("--num_workers", type=int, default=4,
                        help="Number of workers for data loading")
+    parser.add_argument("--save_checkpoints", type=int, default=0,
+                       help="Set to 1 to keep checkpoint files (skip cleanup step)")
     
     # ========== 标签嵌入参数 ==========
     parser.add_argument("--use_label_embedding", action="store_true",
@@ -79,7 +102,7 @@ def create_train_parser() -> argparse.ArgumentParser:
                        help="Use hierarchical multitask model with token and sentence heads")
     parser.add_argument("--label_emb_dim", type=int, default=128,
                        help="Label embedding dimension")
-    parser.add_argument("--use_similarity_reg", action="store_true", default=True,
+    parser.add_argument("--use_similarity_reg", action="store_true", default=第一个是False,
                        help="Use similarity regularization")
     parser.add_argument("--similarity_weight", type=float, default=0.1,
                        help="Similarity regularization weight")
@@ -157,8 +180,6 @@ def create_train_parser() -> argparse.ArgumentParser:
                        help="Whether to use TAM-CL")
     parser.add_argument("--tam_alpha", type=float, default=1.0,
                     help="Weight α for intermediate KD loss in TAM-CL")
-    parser.add_argument("--replay_frequency", type=int, default=0,
-                        help="How many steps between experience replay batches (0 = no replay)")
     
     # DEQA (Descriptions Enhanced Question-Answering Framework)
     parser.add_argument("--deqa", type=int, default=0,
@@ -216,8 +237,18 @@ def create_train_parser() -> argparse.ArgumentParser:
     parser.add_argument("--span_hidden", type=int, default=256,
                        help="Hidden dimension for span head")
     
+    # ========== Span Loss参数 ==========
+    parser.add_argument("--use_span_loss", type=int, default=1,
+                       help="Whether to use span loss for sequence tasks (0=disable, 1=enable)")
+    parser.add_argument("--boundary_weight", type=float, default=0.2,
+                       help="Weight for boundary loss in span loss")
+    parser.add_argument("--span_f1_weight", type=float, default=0.0,
+                       help="Weight for span F1 loss (non-differentiable, usually 0)")
+    parser.add_argument("--transition_weight", type=float, default=0.0,
+                       help="Weight for transition penalty (non-differentiable, usually 0)")
+    
     # ========== 图平滑参数 ==========
-    parser.add_argument("--graph_smooth", type=int, default=1,
+    parser.add_argument("--graph_smooth", type=int, default=0,
                        help="Whether to use label graph")
     parser.add_argument("--graph_tau", type=float, default=0.5,
                        help="Tau for label graph")

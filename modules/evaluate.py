@@ -180,7 +180,45 @@ def evaluate_single_task(model, task_name, split, device, args):
                 
                 # logits: [batch_size, seq_len, num_labels]
                 # preds => [batch_size, seq_len]
-                preds = torch.argmax(logits, dim=2)
+                
+                # 检查是否使用CRF
+                use_crf = getattr(args, 'use_crf', 0) if not isinstance(args, dict) else args.get('use_crf', 0)
+                
+                if use_crf and hasattr(model, 'head') and hasattr(model.head, 'crf'):
+                    # 使用CRF的Viterbi解码获取全局最优序列
+                    # ✅ 关键修复：裁剪序列，去掉 [CLS] 和 [SEP]
+                    # torchcrf 要求第一个位置的 mask 必须为 True
+                    
+                    batch_size, max_len, _ = logits.size()
+                    preds = torch.zeros(batch_size, max_len, dtype=torch.long, device=logits.device)
+                    
+                    for i in range(batch_size):
+                        # 找到有效 token 的范围（label != -100）
+                        valid_mask = (labels[i] != -100)
+                        if valid_mask.any():
+                            valid_indices = valid_mask.nonzero(as_tuple=True)[0]
+                            start_idx = valid_indices[0].item()
+                            end_idx = valid_indices[-1].item() + 1
+                            
+                            # 提取有效范围
+                            sample_logits = logits[i:i+1, start_idx:end_idx, :]
+                            sample_mask = torch.ones(1, end_idx - start_idx, dtype=torch.bool, device=logits.device)
+                            
+                            # CRF decode
+                            pred_seq_list = model.head.crf.decode(sample_logits, mask=sample_mask)
+                            pred_seq = pred_seq_list[0]  # 取第一个（也是唯一一个）
+                            
+                            # 填充到原始位置
+                            for j, pred_label in enumerate(pred_seq):
+                                if start_idx + j < max_len:
+                                    preds[i, start_idx + j] = pred_label
+                    
+                    if logger and getattr(evaluate_single_task, '_crf_decode_logged', 0) < 3:
+                        logger.info("✓ 使用CRF Viterbi解码进行预测（裁剪序列，去除特殊token）")
+                        evaluate_single_task._crf_decode_logged = getattr(evaluate_single_task, '_crf_decode_logged', 0) + 1
+                else:
+                    # 使用argmax（局部最优）
+                    preds = torch.argmax(logits, dim=2)
 
                 # 将它们 flatten (含-100) 以计算 token-level 参考指标
                 all_preds_token.extend(preds.view(-1).cpu().tolist())
@@ -198,10 +236,15 @@ def evaluate_single_task(model, task_name, split, device, args):
                     raise ValueError(f"Unexpected preds dimension: {preds.dim()}")
 
                 for i in range(bsz):
-                    # 过滤 -100
-                    valid_len = (labels[i] != -100).sum().item()
-                    pred_i = preds[i, :valid_len].cpu().tolist()
-                    gold_i = labels[i, :valid_len].cpu().tolist()
+                    # 过滤 -100（包括起始的 [CLS] 与尾部 padding）
+                    valid_mask = (labels[i] != -100)
+                    valid_len = valid_mask.sum().item()
+                    if valid_len == 0:
+                        pred_i = []
+                        gold_i = []
+                    else:
+                        pred_i = preds[i][valid_mask].cpu().tolist()
+                        gold_i = labels[i][valid_mask].cpu().tolist()
 
                     if task_name == "mate":
                         pred_chunks = decode_mate(pred_i)
@@ -463,5 +506,4 @@ def evaluate_all_learned_tasks(model, sessions_list, device, train_info):
     
     logger.info(f"Final acc_list: {acc_list}")
     return acc_list
-
 

@@ -1,0 +1,28 @@
+{
+  "account_id": "account_3",
+  "account_name": "Account 3 - MABSA (Baseline vs CRF)",
+  "task": "mabsa",
+  "ablations": [
+    "baseline",
+    "crf_only"
+  ],
+  "description": "MABSA任务：对比baseline和CRF效果",
+  "estimated_time_minutes": 440,
+  "total_configs": 2,
+  "configs": [
+    {
+      "file": "kaggle_baseline_twitter2015_mabsa.json",
+      "path": "scripts/configs/kaggle_ablation/account_3/kaggle_baseline_twitter2015_mabsa.json",
+      "task": "mabsa",
+      "ablation_type": "baseline",
+      "dataset": "twitter2015"
+    },
+    {
+      "file": "kaggle_crf_only_twitter2015_mabsa.json",
+      "path": "scripts/configs/kaggle_ablation/account_3/kaggle_crf_only_twitter2015_mabsa.json",
+      "task": "mabsa",
+      "ablation_type": "crf_only",
+      "dataset": "twitter2015"
+    }
+  ]
+}

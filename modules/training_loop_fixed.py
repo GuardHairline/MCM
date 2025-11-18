@@ -20,6 +20,7 @@ from continual.metrics import ContinualMetrics, compute_metrics_example
 from continual.label_embedding_manager import LabelEmbeddingManager
 from continual.label_config import get_label_manager
 from modules.evaluate import evaluate_single_task
+from utils.span_loss import SpanLoss, compute_boundary_loss
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,28 @@ def train_epoch(model, train_loader, optimizer, device, args,
     # 获取任务信息
     task_config = get_label_manager().get_task_config(args.task_name)
     is_seq_task = task_config.task_type.value == "token" if task_config else False
+    
+    # 初始化span loss（仅用于序列任务）
+    # 注意：当使用CRF时，禁用Span Loss以避免冲突
+    span_loss_fn = None
+    use_crf = getattr(args, 'use_crf', 0)
+    use_span_loss = getattr(args, 'use_span_loss', 0)  # 改为默认禁用
+    
+    # CRF 和 Span Loss 互斥（避免冲突）
+    if use_crf and use_span_loss:
+        if logger_obj:
+            logger_obj.warning("⚠️ CRF 和 Span Loss 同时启用会产生冲突，自动禁用 Span Loss")
+        use_span_loss = 0
+    
+    if use_span_loss and is_seq_task:
+        span_loss_fn = SpanLoss(
+            task_name=args.task_name,
+            span_f1_weight=getattr(args, 'span_f1_weight', 0.0),  # F1 loss不可微，暂时禁用
+            boundary_weight=getattr(args, 'boundary_weight', 0.2),  # 边界loss权重
+            transition_weight=getattr(args, 'transition_weight', 0.0)  # 转移惩罚不可微，暂时禁用
+        )
+        if logger_obj:
+            logger_obj.info(f"✓ Span Loss enabled for {args.task_name} (boundary_weight={getattr(args, 'boundary_weight', 0.2)})")
 
     for batch_idx, batch in enumerate(train_loader):
         # 数据移到设备
@@ -238,22 +261,42 @@ def train_epoch(model, train_loader, optimizer, device, args,
                             logger_obj.error(error_msg)
                         raise ValueError(error_msg)
                     
-                    logits = model.head(fused_feat)
+                    # 调用head，可能返回logits或(nll, logits)
+                    # 对于sequence labeling任务，传入attention_mask作为CRF的mask
+                    head_output = model.head(fused_feat, labels=labels, mask=attention_mask)
                     
-                    class_weights = get_label_manager().get_class_weights(args.task_name, device)
-                    if class_weights is not None:
-                        loss = F.cross_entropy(
-                            logits.reshape(-1, logits.size(-1)),
-                            labels.reshape(-1),
-                            weight=class_weights,
-                            ignore_index=-100
-                        )
+                    # 检查是否使用了CRF（返回元组）
+                    if isinstance(head_output, tuple):
+                        # CRF模式：返回 (nll, logits)
+                        nll, logits = head_output
+                        loss = nll  # CRF已经计算了loss
+                        if logger_obj and batch_idx % 50 == 0:
+                            logger_obj.debug(f"CRF loss (NLL): {loss.item():.4f}")
                     else:
-                        loss = F.cross_entropy(
-                            logits.reshape(-1, logits.size(-1)),
-                            labels.reshape(-1),
-                            ignore_index=-100
-                        )
+                        # 非CRF模式：返回 logits
+                        logits = head_output
+                        class_weights = get_label_manager().get_class_weights(args.task_name, device)
+                        if class_weights is not None:
+                            loss = F.cross_entropy(
+                                logits.reshape(-1, logits.size(-1)),
+                                labels.reshape(-1),
+                                weight=class_weights,
+                                ignore_index=-100
+                            )
+                        else:
+                            loss = F.cross_entropy(
+                                logits.reshape(-1, logits.size(-1)),
+                                labels.reshape(-1),
+                                ignore_index=-100
+                            )
+                    
+                    # ✨ 添加span loss（序列任务）
+                    if span_loss_fn is not None:
+                        span_loss = span_loss_fn(logits, labels)
+                        if isinstance(span_loss, torch.Tensor) and span_loss.requires_grad:
+                            loss = loss + span_loss
+                            if logger_obj and batch_idx % 50 == 0:
+                                logger_obj.debug(f"Span loss: {span_loss.item():.4f}")
                     
                     if args.ddas:
                         pooled_feature = fused_feat.mean(dim=1)
@@ -399,7 +442,7 @@ def train_epoch(model, train_loader, optimizer, device, args,
 
 
 def validate_epoch(model, val_loader, device, args, logger=None):
-    """验证一个epoch"""
+    """验证一个epoch（计算loss和metrics）"""
     # 确保使用正确的任务头（使用非严格模式）
     if hasattr(model, 'set_active_head') and hasattr(args, 'session_name'):
         try:
@@ -416,9 +459,95 @@ def validate_epoch(model, val_loader, device, args, logger=None):
     if args.clap4clip and hasattr(model, 'set_current_task'):
         model.set_current_task(args.session_name)
     
-    # 直接用 evaluate_single_task 评估
+    # 计算验证loss
+    model.eval()
+    total_loss = 0.0
+    total_samples = 0
+    
+    with torch.no_grad():
+        for batch in val_loader:
+            # 数据移到device
+            input_ids = batch['input_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
+            labels = batch.get('labels', None)
+            
+            # 准备其他输入
+            token_type_ids = batch.get('token_type_ids', None)
+            if token_type_ids is not None:
+                token_type_ids = token_type_ids.to(device)
+            
+            image_tensor = batch.get('image_tensor', None)
+            if image_tensor is not None:
+                image_tensor = image_tensor.to(device)
+            
+            if labels is not None:
+                labels = labels.to(device)
+                
+                # 前向传播
+                try:
+                    # 处理不同的模型接口
+                    if hasattr(args, 'tam_cl') and args.tam_cl:
+                        out = model(input_ids, attention_mask, token_type_ids, image_tensor, 
+                                  session_id=args.session_name)
+                        if isinstance(out, tuple) and len(out) >= 2:
+                            loss = out[0] if isinstance(out[0], torch.Tensor) and out[0].dim() == 0 else out[1]
+                        else:
+                            # 没有loss，跳过
+                            continue
+                    else:
+                        # 标准forward调用
+                        out = model(input_ids, attention_mask, token_type_ids, image_tensor)
+                        
+                        if isinstance(out, tuple):
+                            # 通常格式: (loss, logits) 或 (logits,)
+                            if len(out) >= 2 and isinstance(out[0], torch.Tensor) and out[0].dim() == 0:
+                                loss = out[0]
+                            else:
+                                # 没有loss，需要手动计算
+                                logits = out[0] if isinstance(out, tuple) else out
+                                loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
+                                
+                                # 判断任务类型
+                                task_config = get_label_manager().get_task_config(args.task_name)
+                                is_seq_task = task_config.task_type.value == "token" if task_config else False
+                                
+                                if is_seq_task:
+                                    # 序列标注任务
+                                    num_labels = logits.size(-1)
+                                    loss = loss_fct(logits.view(-1, num_labels), labels.view(-1))
+                                else:
+                                    # 句级分类任务
+                                    loss = loss_fct(logits, labels)
+                        else:
+                            # 单个tensor，需要手动计算loss
+                            logits = out
+                            loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
+                            task_config = get_label_manager().get_task_config(args.task_name)
+                            is_seq_task = task_config.task_type.value == "token" if task_config else False
+                            
+                            if is_seq_task:
+                                num_labels = logits.size(-1)
+                                loss = loss_fct(logits.view(-1, num_labels), labels.view(-1))
+                            else:
+                                loss = loss_fct(logits, labels)
+                    
+                    # 累积loss
+                    if loss is not None:
+                        total_loss += loss.item() * input_ids.size(0)
+                        total_samples += input_ids.size(0)
+                        
+                except Exception as e:
+                    if logger:
+                        logger.warning(f"验证时计算loss失败: {e}")
+                    continue
+    
+    # 计算平均loss
+    avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
+    
+    # 使用 evaluate_single_task 计算详细metrics
     metrics = evaluate_single_task(model, args.task_name, "dev", device, args)
-    return None, metrics  # 返回None作为loss（因为我们不计算验证loss）
+    
+    return avg_loss, metrics
 
 
 def train_model(model, train_loader, val_loader, optimizer, scheduler, device, args,
@@ -429,11 +558,13 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, device, a
     """完整训练流程（修复版）"""
     best_val_metric = 0.0  # 改用accuracy作为标准
     best_metrics = None
+    best_epoch = 0  # 记录最佳epoch
     patience = args.patience
     no_improve_count = 0
     
     # 收集每个epoch的loss和dev metrics
     epoch_losses = []
+    dev_losses = []  # 记录验证loss
     dev_metrics_history = []
     
     # 创建DDAS优化器
@@ -461,16 +592,25 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, device, a
         
         # 记录loss和metrics
         epoch_losses.append(train_loss)
+        dev_losses.append(val_loss)  # 记录验证loss
         dev_metrics_history.append(metrics)
         
         # Early stopping检查
+        # 根据任务类型，acc字段存储的是：
+        # - 序列任务(MATE/MNER/MABSA): chunk_f1 * 100 (span-level micro F1)
+        # - 句级任务(MASC): micro_f1 * 100
         current_metric = metrics.get('acc', 0.0)
         if current_metric > best_val_metric:
             best_val_metric = current_metric
             best_metrics = metrics.copy()
+            best_epoch = epoch + 1  # 记录最佳epoch（从1开始）
             no_improve_count = 0
             if logger:
-                logger.info(f"✓ New best accuracy: {best_val_metric:.4f}")
+                # 判断任务类型以显示正确的指标名称
+                task_name = args.task_name
+                is_sequence_task = task_name in ["mate", "mner", "mabsa"]
+                metric_name = "Chunk F1 (Span-level)" if is_sequence_task else "Micro F1"
+                logger.info(f"✓ New best {metric_name}: {best_val_metric:.4f} at epoch {best_epoch}")
         else:
             no_improve_count += 1
             if logger:
@@ -503,10 +643,35 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, device, a
     
     if best_metrics is None:
         best_metrics = final_dev_metrics
+        best_epoch = args.epochs  # 如果没有更新过，说明最后一个epoch最好
+    
+    # 记录最佳dev指标的详细信息
+    task_name = args.task_name
+    is_sequence_task = task_name in ["mate", "mner", "mabsa"]
+    
+    # 构建最佳指标摘要
+    best_metric_summary = {
+        "best_epoch": best_epoch,
+        "best_dev_metric": best_val_metric,
+        "metric_type": "chunk_f1 (span-level)" if is_sequence_task else "micro_f1",
+        "all_metrics": best_metrics,  # 包含所有指标的完整字典
+    }
+    
+    if logger:
+        logger.info("="*80)
+        logger.info("📊 Training Summary")
+        logger.info("="*80)
+        logger.info(f"Best Epoch: {best_epoch}/{args.epochs}")
+        logger.info(f"Best Dev {best_metric_summary['metric_type']}: {best_val_metric:.4f}")
+        logger.info(f"Final Dev {best_metric_summary['metric_type']}: {final_dev_metrics.get('acc', 0.0):.4f}")
+        logger.info(f"Final Test {best_metric_summary['metric_type']}: {final_test_metrics.get('acc', 0.0):.4f}")
+        logger.info("="*80)
     
     return {
         "best_metrics": best_metrics,
+        "best_metric_summary": best_metric_summary,  # 新增：最佳指标摘要
         "epoch_losses": epoch_losses,
+        "dev_losses": dev_losses,  # 验证loss
         "dev_metrics_history": dev_metrics_history,
         "final_dev_metrics": final_dev_metrics,
         "final_test_metrics": final_test_metrics

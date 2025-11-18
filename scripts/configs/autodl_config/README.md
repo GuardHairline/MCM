@@ -82,3 +82,9 @@ bash scripts/configs/autodl_config/stop_experiments.sh
 
 详细使用指南请查看：`AUTODL_SETUP_GUIDE.md`
 
+
+
+
+
+
+

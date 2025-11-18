@@ -26,7 +26,8 @@ from datasets.get_dataset import get_dataset
 from modules.evaluate import evaluate_single_task, evaluate_all_learned_tasks
 from .train_utils import (
     load_train_info, create_model, create_continual_learning_components,
-    create_session_info, save_train_info, create_optimizer, create_ddas_optimizer
+    create_session_info, save_train_info, create_optimizer, create_ddas_optimizer,
+    create_scheduler
 )
 from .training_loop_fixed import train_model, update_continual_learning_components
 from .parser import parse_train_args
@@ -40,6 +41,7 @@ from utils.logger import setup_logger
 from utils.ensureFileExists import ensure_directory_exists
 from visualize.feature_clustering import visualize_task_after_training, visualize_all_tasks_evolution
 from visualize.feature_clustering_enhanced import visualize_task_enhanced
+from visualize.training_curves import plot_training_curves
 import json
 import argparse
 
@@ -217,7 +219,9 @@ def train(args, logger, all_tasks=[]):
     if gem is not None:
         gem.register_task(args.task_name, train_dataset)
     # ========== 6) 创建优化器和调度器 ==========
-    optimizer, scheduler = create_optimizer(full_model, args)
+    optimizer = create_optimizer(full_model, args)
+    total_training_steps = len(train_loader) * args.epochs if len(train_loader) > 0 else args.epochs
+    scheduler = create_scheduler(optimizer, args, total_training_steps)
     
     # ========== 7) 训练模型 ==========
     logger.info("Starting training")
@@ -363,12 +367,20 @@ def train(args, logger, all_tasks=[]):
     session_info["details"].update({
         "epoch_losses": train_result["epoch_losses"],
         "dev_metrics_history": train_result["dev_metrics_history"],
+        "dev_losses": train_result.get("dev_losses", []),  # 验证loss历史
+        "best_metric_summary": train_result.get("best_metric_summary", {}),  # ✨ 最佳dev指标摘要（含最佳epoch）
         "final_dev_metrics": train_result["final_dev_metrics"],  # 用于模型选择和early stopping
         "final_test_metrics": train_result["final_test_metrics"],  # 仅用于最终报告
         "dev_used_for_decisions": True,  # 标记使用DEV集进行训练决策
         "test_for_reference_only": True,  # 标记TEST集仅供最终参考
         "zero_shot_metrics": zero_shot_metrics if zero_shot_metrics else {}  # 0样本检测结果（基于DEV）
     })
+    
+    # ✨ 在session_info的顶层也记录最佳指标，方便访问
+    if "best_metric_summary" in train_result:
+        session_info["best_dev_epoch"] = train_result["best_metric_summary"].get("best_epoch", 0)
+        session_info["best_dev_metric"] = train_result["best_metric_summary"].get("best_dev_metric", 0.0)
+        session_info["best_dev_metric_type"] = train_result["best_metric_summary"].get("metric_type", "unknown")
     
     # 获取当前任务的索引（基于已学习的任务数量）
     task_idx = len(train_info["tasks"])
@@ -585,6 +597,56 @@ def train(args, logger, all_tasks=[]):
         logger.info(f"Task heads saved to: {task_heads_path}")
     
     logger.info(f"Model saved successfully to: {args.output_model_path}")
+    
+    # ========== 15) 绘制训练曲线 ==========
+    if getattr(args, 'plot_training_curves', True):  # 默认启用
+        try:
+            logger.info("="*80)
+            logger.info("📈 绘制训练曲线...")
+            logger.info("="*80)
+            
+            # 准备绘图数据
+            epoch_losses = train_result.get("epoch_losses", [])
+            dev_losses = train_result.get("dev_losses", [])
+            dev_metrics_history = train_result.get("dev_metrics_history", [])
+            
+            if epoch_losses and dev_metrics_history:
+                # 提取关键指标
+                epochs = list(range(1, len(epoch_losses) + 1))
+                # 如果dev_losses不存在或长度不匹配，用占位符
+                if not dev_losses or len(dev_losses) != len(epoch_losses):
+                    dev_losses = [0.0] * len(epochs)
+                span_f1_scores = [m.get('acc', 0.0) for m in dev_metrics_history]  # 主指标
+                
+                metrics_history = {
+                    'epochs': epochs,
+                    'train_loss': epoch_losses,
+                    'dev_loss': dev_losses,  # 验证loss（已在validate_epoch中计算）
+                    'span_f1': span_f1_scores
+                }
+                
+                # 确定保存路径
+                curves_dir = os.path.dirname(args.output_model_path)
+                curves_filename = f"{args.session_name}_training_curves.png"
+                if config_name:
+                    curves_filename = f"{config_name}_{args.session_name}_curves.png"
+                curves_path = os.path.join(curves_dir, curves_filename)
+                
+                # 绘制曲线
+                plot_training_curves(
+                    metrics_history=metrics_history,
+                    save_path=curves_path,
+                    task_name=f"{args.task_name.upper()} ({args.session_name})",
+                    figsize=(12, 6),
+                    dpi=150
+                )
+                logger.info(f"✓ 训练曲线已保存: {curves_path}")
+            else:
+                logger.warning("⚠️ 训练历史数据不完整，跳过绘图")
+        except Exception as e:
+            logger.error(f"⚠️ 绘制训练曲线失败: {e}")
+            import traceback
+            traceback.print_exc()
     
     # 保存训练信息
     save_train_info(train_info, args.train_info_json, logger)

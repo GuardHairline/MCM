@@ -31,3 +31,9 @@ echo "  - 完成工作后记得手动关机"
 echo "  - 手动关机命令: sudo shutdown -h now"
 echo ""
 
+
+
+
+
+
+

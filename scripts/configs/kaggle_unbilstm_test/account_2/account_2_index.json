@@ -1,0 +1,20 @@
+{
+  "account_id": "account_2",
+  "account_name": "Account 2 - MNER BiLSTM测试",
+  "task": "mner",
+  "config_types": [
+    "config_default"
+  ],
+  "description": "MNER任务：测试三种BiLSTM配置",
+  "estimated_time_minutes": 200,
+  "total_configs": 1,
+  "configs": [
+    {
+      "file": "kaggle_bilstm_config_default_twitter2015_mner.json",
+      "path": "scripts/configs/kaggle_unbilstm_test/account_2/kaggle_bilstm_config_default_twitter2015_mner.json",
+      "task": "mner",
+      "config_type": "config_default",
+      "dataset": "twitter2015"
+    }
+  ]
+}

@@ -1,19 +1,47 @@
 # Kaggle优化的依赖文件
 # 
 # 说明：
-# - Kaggle已预装torch, torchvision, transformers, numpy, scikit-learn等
+# - Kaggle已预装: torch, torchvision, transformers, numpy, scikit-learn, matplotlib, Pillow等
 # - 只安装Kaggle环境缺失或需要特定版本的包
-# - 避免与Kaggle预装包版本冲突
+# - 避免与Kaggle预装包版本冲突，减少安装时间
 
-# 必需的特定版本包
+# ==================== 必需的包 ====================
+
+# CRF层 - 用于序列标注任务的BIO约束（CRF修复的核心依赖）
+# 注意：如果安装失败，代码会自动使用内置的SimpleCRF
 pytorch_crf==0.7.2
+
+# Tokenizer - DeBERTa模型必需
 sentencepiece==0.1.99
+
+# Protobuf - transformers兼容性
 protobuf==3.20.3
 
-# Kaggle环境可能没有的包
+# 表格导出 - 结果分析可能用到
 openpyxl>=3.0.0
 
-# 如果需要特定版本，使用以下方式（通常不推荐）
+# ==================== 可选的包 ====================
+# Kaggle已预装以下包，通常不需要指定版本：
+# - torch (通常是最新stable版本)
+# - torchvision
+# - transformers (4.x)
+# - numpy
+# - scikit-learn
+# - matplotlib
+# - Pillow
+
+# 如果遇到版本兼容问题，可以取消下面的注释：
 # matplotlib>=3.8.0
 # Pillow>=10.0.0
+
+# ==================== 说明 ====================
+# CRF修复相关：
+# - pytorch_crf: 用于MATE/MNER/MABSA任务的CRF层
+# - 如果pytorch_crf安装失败，会自动使用内置SimpleCRF
+# - SimpleCRF功能完整，性能接近pytorch_crf
+# 
+# 安装注意事项：
+# - 版本冲突警告可以安全忽略
+# - Kaggle预装的包版本通常更新且兼容
+# - 只有运行时报错才需要处理
 

@@ -1,0 +1,35 @@
+{
+  "description": "3账号BiLSTM测试总索引",
+  "purpose": "测试新实现的BiLSTM-CRF任务头",
+  "total_accounts": 3,
+  "total_configs": 3,
+  "accounts": {
+    "account_1": {
+      "name": "Account 1 - MATE BiLSTM测试",
+      "task": "mate",
+      "config_types": [
+        "config_default"
+      ],
+      "configs_count": 1,
+      "directory": "scripts\\configs\\kaggle_bilstm_test\\account_1"
+    },
+    "account_2": {
+      "name": "Account 2 - MNER BiLSTM测试",
+      "task": "mner",
+      "config_types": [
+        "config_default"
+      ],
+      "configs_count": 1,
+      "directory": "scripts\\configs\\kaggle_bilstm_test\\account_2"
+    },
+    "account_3": {
+      "name": "Account 3 - MABSA BiLSTM测试",
+      "task": "mabsa",
+      "config_types": [
+        "config_default"
+      ],
+      "configs_count": 1,
+      "directory": "scripts\\configs\\kaggle_bilstm_test\\account_3"
+    }
+  }
+}

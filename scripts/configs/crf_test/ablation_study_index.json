@@ -1,0 +1,125 @@
+{
+  "description": "CRF and Span Loss Ablation Study",
+  "purpose": "比较4种配置的效果: baseline, CRF only, Span Loss only, CRF+Span Loss",
+  "total_configs": 12,
+  "ablation_configs": 4,
+  "tasks": [
+    "mate",
+    "mner",
+    "mabsa"
+  ],
+  "dataset": "twitter2015",
+  "hyperparameters": {
+    "lr": 1e-05,
+    "step_size": 10,
+    "gamma": 0.5,
+    "epochs": 20,
+    "patience": 5,
+    "batch_size": 16
+  },
+  "ablation_types": {
+    "baseline": "Baseline (no CRF, no Span Loss)",
+    "crf_only": "CRF only",
+    "span_only": "Span Loss only",
+    "crf_and_span": "CRF + Span Loss (recommended)"
+  },
+  "kaggle_mode": false,
+  "configs": [
+    {
+      "file": "baseline_twitter2015_mate.json",
+      "path": "scripts/configs/crf_test/baseline_twitter2015_mate.json",
+      "task": "mate",
+      "dataset": "twitter2015",
+      "ablation_type": "baseline",
+      "mode": "multimodal"
+    },
+    {
+      "file": "crf_only_twitter2015_mate.json",
+      "path": "scripts/configs/crf_test/crf_only_twitter2015_mate.json",
+      "task": "mate",
+      "dataset": "twitter2015",
+      "ablation_type": "crf_only",
+      "mode": "multimodal"
+    },
+    {
+      "file": "span_only_twitter2015_mate.json",
+      "path": "scripts/configs/crf_test/span_only_twitter2015_mate.json",
+      "task": "mate",
+      "dataset": "twitter2015",
+      "ablation_type": "span_only",
+      "mode": "multimodal"
+    },
+    {
+      "file": "crf_and_span_twitter2015_mate.json",
+      "path": "scripts/configs/crf_test/crf_and_span_twitter2015_mate.json",
+      "task": "mate",
+      "dataset": "twitter2015",
+      "ablation_type": "crf_and_span",
+      "mode": "multimodal"
+    },
+    {
+      "file": "baseline_twitter2015_mner.json",
+      "path": "scripts/configs/crf_test/baseline_twitter2015_mner.json",
+      "task": "mner",
+      "dataset": "twitter2015",
+      "ablation_type": "baseline",
+      "mode": "multimodal"
+    },
+    {
+      "file": "crf_only_twitter2015_mner.json",
+      "path": "scripts/configs/crf_test/crf_only_twitter2015_mner.json",
+      "task": "mner",
+      "dataset": "twitter2015",
+      "ablation_type": "crf_only",
+      "mode": "multimodal"
+    },
+    {
+      "file": "span_only_twitter2015_mner.json",
+      "path": "scripts/configs/crf_test/span_only_twitter2015_mner.json",
+      "task": "mner",
+      "dataset": "twitter2015",
+      "ablation_type": "span_only",
+      "mode": "multimodal"
+    },
+    {
+      "file": "crf_and_span_twitter2015_mner.json",
+      "path": "scripts/configs/crf_test/crf_and_span_twitter2015_mner.json",
+      "task": "mner",
+      "dataset": "twitter2015",
+      "ablation_type": "crf_and_span",
+      "mode": "multimodal"
+    },
+    {
+      "file": "baseline_twitter2015_mabsa.json",
+      "path": "scripts/configs/crf_test/baseline_twitter2015_mabsa.json",
+      "task": "mabsa",
+      "dataset": "twitter2015",
+      "ablation_type": "baseline",
+      "mode": "multimodal"
+    },
+    {
+      "file": "crf_only_twitter2015_mabsa.json",
+      "path": "scripts/configs/crf_test/crf_only_twitter2015_mabsa.json",
+      "task": "mabsa",
+      "dataset": "twitter2015",
+      "ablation_type": "crf_only",
+      "mode": "multimodal"
+    },
+    {
+      "file": "span_only_twitter2015_mabsa.json",
+      "path": "scripts/configs/crf_test/span_only_twitter2015_mabsa.json",
+      "task": "mabsa",
+      "dataset": "twitter2015",
+      "ablation_type": "span_only",
+      "mode": "multimodal"
+    },
+    {
+      "file": "crf_and_span_twitter2015_mabsa.json",
+      "path": "scripts/configs/crf_test/crf_and_span_twitter2015_mabsa.json",
+      "task": "mabsa",
+      "dataset": "twitter2015",
+      "ablation_type": "crf_and_span",
+      "mode": "multimodal"
+    }
+  ]
+}

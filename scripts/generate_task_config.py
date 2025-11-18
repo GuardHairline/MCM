@@ -512,7 +512,7 @@ class TaskConfigGenerator:
         self.environments = {
             "server": {
                 "base_dir": "",
-                "model_name": "checkpoints/251024/{task}_{dataset}_{strategy}_{seq}.pt",  # 服务器版本统一命名
+                "model_name": "checkpoints/251024/{task}_{dataset}_{strategy}_{seq}.pt",
                 "log_dir": "checkpoints/251024/log",
                 "checkpoint_dir": "checkpoints/251024",
                 "ewc_dir": "checkpoints/251024/ewc_params",
@@ -520,15 +520,31 @@ class TaskConfigGenerator:
             },
             "local": {
                 "base_dir": "./",
-                "model_name": "{task}_{dataset}_{strategy}.pt",  # 本地版本详细命名
+                "model_name": "{task}_{dataset}_{strategy}.pt",
                 "log_dir": "./log",
                 "checkpoint_dir": "./checkpoints",
                 "ewc_dir": "./ewc_params",
                 "gem_dir": "./gem_memory"
+            },
+            "kaggle": {
+                "base_dir": "/kaggle/working",
+                "model_name": "{task}_{dataset}_{strategy}.pt",
+                "log_dir": "/kaggle/working/log",
+                "checkpoint_dir": "/kaggle/working/checkpoints",
+                "ewc_dir": "/kaggle/working/checkpoints/ewc",
+                "gem_dir": "/kaggle/working/checkpoints/gem_memory"
+            },
+            "autodl": {
+                "base_dir": "/root/autodl-tmp",
+                "model_name": "{task}_{dataset}_{strategy}.pt",
+                "log_dir": "/root/autodl-tmp/log",
+                "checkpoint_dir": "/root/autodl-tmp/checkpoints",
+                "ewc_dir": "/root/autodl-tmp/checkpoints/ewc",
+                "gem_dir": "/root/autodl-tmp/checkpoints/gem_memory"
             }
         }
         
-        # 数据集配置
+        # 数据集配置 - 针对不同任务使用不同路径
         self.datasets = {
             "twitter2015": {
                 "data_dir": "./data",
@@ -708,6 +724,14 @@ class TaskConfigGenerator:
         }
     
     def get_dataset_files(self, task_name, dataset):
+        """
+        获取数据集文件路径
+        
+        注意：
+        - MASC/MATE/MABSA 共享 data/MASC/ 下的文件
+        - MNER 使用 data/MNER/ 下的文件
+        - 所有任务的图像都在 data/img
+        """
         # MNER 任务单独处理
         if task_name == "mner":
             if dataset == "200":
@@ -720,7 +744,7 @@ class TaskConfigGenerator:
                 return self.mner_datasets["mix_ner"]["full_files"]
             else:
                 raise ValueError(f"Unknown dataset for mner: {dataset}")
-        # 其它任务
+        # MASC/MATE/MABSA 都使用 MASC 文件夹下的数据
         else:
             if dataset == "200":
                 return self.datasets["200"]["files"]
@@ -853,14 +877,14 @@ class TaskConfigGenerator:
             "step_size": task_params.get("step_size", 10),
             "gamma": task_params.get("gamma", 0.5),
             "weight_decay": task_params.get("weight_decay", 1e-5),
-            "dropout_prob": task_params.get("dropout_prob", 0.1),
+            "dropout_prob": task_params.get("dropout_prob", 0.3),
             "patience": task_params.get("patience", 999),  # 实际上禁用早停（超参数搜索需要完整训练）
             "fusion_strategy": task_params.get("fusion_strategy", "concat"),
             "num_heads": task_params.get("num_heads", 8),
             "hidden_dim": task_params.get("hidden_dim", 768),
             "text_model_name": task_params.get("text_model_name", "microsoft/deberta-v3-base" if strategy != "clap4clip" else "openai/clip-vit-base-patch32"),
             "image_model_name": task_params.get("image_model_name", "google/vit-base-patch16-224-in21k" if strategy != "clap4clip" else "openai/clip-vit-base-patch32"),
-            "image_dir": task_params.get("image_dir", "data/img"),
+            "image_dir": task_params.get("image_dir", "data/img"),  # 所有任务的图像都在data/img
             # 数据集文件
             "train_text_file": dataset_files["train"],
             "test_text_file": dataset_files["test"],
@@ -873,14 +897,26 @@ class TaskConfigGenerator:
             "use_label_embedding": task_params.get("use_label_embedding", False),
             "use_hierarchical_head": task_params.get("use_hierarchical_head", False),
             "label_emb_dim": task_params.get("label_emb_dim", 128),
-            "use_similarity_reg": task_params.get("use_similarity_reg", True),
+            "use_similarity_reg": task_params.get("use_similarity_reg", False),
             "similarity_weight": task_params.get("similarity_weight", 0.1),
             # 模型头部参数
             "triaffine": task_params.get("triaffine", 1),
             "span_hidden": task_params.get("span_hidden", 256),
+            # CRF和Span Loss参数
+            "use_crf": task_params.get("use_crf", 1),  # 默认启用CRF
+            "use_span_loss": task_params.get("use_span_loss", 1),  # 默认启用Span Loss
+            "boundary_weight": task_params.get("boundary_weight", 0.2),
+            "span_f1_weight": task_params.get("span_f1_weight", 0.0),
+            "transition_weight": task_params.get("transition_weight", 0.0),
             # 图平滑参数
             "graph_smooth": task_params.get("graph_smooth", 1),
             "graph_tau": task_params.get("graph_tau", 0.5),
+            # BiLSTM参数（新增）
+            "use_bilstm": task_params.get("use_bilstm", 1),  # 默认使用BiLSTM
+            "bilstm_hidden_size": task_params.get("bilstm_hidden_size", 256),
+            "bilstm_num_layers": task_params.get("bilstm_num_layers", 2),
+            "lstm_lr": task_params.get("lstm_lr", 1e-4),
+            "crf_lr": task_params.get("crf_lr", 1e-3),
             # 其他参数
             "num_workers": task_params.get("num_workers", 4),
         }
@@ -1071,7 +1107,7 @@ def generate_all_task_configs(env: str = "server",
 def main():
     parser = argparse.ArgumentParser(description="生成任务配置文件")
     parser.add_argument("--env", type=str, default="server", 
-                       choices=["local", "server"],
+                       choices=["local", "server", "kaggle", "autodl"],
                        help="环境类型")
     parser.add_argument("--dataset", type=str, default="200", 
                        choices=["twitter2015", "twitter2017", "mix", "200"],
