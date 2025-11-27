@@ -141,6 +141,7 @@ class KaggleBiLSTMTestGenerator:
         task_config.update(bilstm_params)
         task_config["use_bilstm"] = self.use_bilstm
         task_config["enable_bilstm_head"] = self.enable_bilstm_head
+        task_config["debug_samples"] = 100  # 便于训练后输出dev样本对齐日志
         # 确保CRF启用
         task_config["use_crf"] = 1
         task_config["use_span_loss"] = 0  # 不使用span loss，只测试BiLSTM-CRF

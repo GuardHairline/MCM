@@ -20,7 +20,7 @@ mp.set_sharing_strategy('file_system')
 
 # 导入训练模块
 from modules.train_refactored import train
-from modules.parser import parse_train_args
+from modules.parser import create_train_parser, validate_args
 from utils.logger import setup_logger
 
 
@@ -131,101 +131,56 @@ def cleanup_experiment_files(config: Dict[str, Any], global_params: Dict[str, An
         print("="*60 + "\n")
 
 
+def _build_args(task_config: Dict[str, Any], global_params: Dict[str, Any], pretrained_model_path: str) -> argparse.Namespace:
+    """
+    依据 parser 定义构造完整 args：parser默认 -> global_params -> task_config
+    """
+    parser = create_train_parser()
+    defaults = {action.dest: action.default for action in parser._actions if action.dest != "help"}
+    args_dict = defaults.copy()
+
+    def update_from(source: Dict[str, Any]):
+        for k, v in source.items():
+            if k in args_dict:
+                args_dict[k] = v
+
+    # 全局覆盖默认，再由任务覆盖
+    update_from(global_params)
+    update_from(task_config)
+
+    # 必填/特殊字段
+    args_dict["task_name"] = task_config["task_name"]
+    args_dict["session_name"] = task_config["session_name"]
+    args_dict["task_config_file"] = global_params.get("task_config_file", "")
+    args_dict["train_info_json"] = global_params["train_info_json"]
+    args_dict["output_model_path"] = task_config.get("output_model_path", global_params.get("output_model_path"))
+    args_dict["pretrained_model_path"] = task_config.get("pretrained_model_path", pretrained_model_path)
+    args_dict["data_dir"] = global_params.get("data_dir", args_dict.get("data_dir"))
+    args_dict["dataset_name"] = global_params.get("dataset_name", args_dict.get("dataset_name"))
+    args_dict["num_workers"] = global_params.get("num_workers", args_dict.get("num_workers", 4))
+    args_dict["enable_bilstm_head"] = int(task_config.get("enable_bilstm_head", global_params.get("enable_bilstm_head", args_dict.get("enable_bilstm_head", 1))))
+
+    # 兼容目录/描述字段
+    if "gem_mem_dir" in global_params:
+        args_dict["gem_mem_dir"] = global_params["gem_mem_dir"]
+    if "ewc_dir" in global_params:
+        args_dict["ewc_dir"] = global_params["ewc_dir"]
+    if "description_file" in task_config:
+        args_dict["description_file"] = task_config["description_file"]
+
+    args = argparse.Namespace(**args_dict)
+    validate_args(args)
+    return args
+
+
 def run_single_task(task_config: Dict[str, Any], global_params: Dict[str, Any], 
                    task_idx: int, total_tasks: int, pretrained_model_path: str = "", all_tasks: List[Dict[str, Any]] = []) -> str:
     """运行单个任务"""
     
     print(f"Running task {task_idx + 1}/{total_tasks}: {task_config['task_name']} ({task_config['session_name']})")
     
-    # 创建参数对象
-    args = argparse.Namespace()
-    
-    # 基本参数
-    args.task_name = task_config["task_name"]
-    args.session_name = task_config["session_name"]
-    args.task_config_file = global_params.get("task_config_file", "")
-    args.train_info_json = global_params["train_info_json"]
-    args.output_model_path = task_config.get("output_model_path", global_params["output_model_path"])
-    args.pretrained_model_path = task_config.get("pretrained_model_path", pretrained_model_path)
-    
-    # 数据参数
-    args.data_dir = global_params.get("data_dir", "data")
-    args.dataset_name = global_params.get("dataset_name", "twitter2015")
-    args.train_text_file = task_config["train_text_file"]
-    args.test_text_file = task_config["test_text_file"]
-    args.dev_text_file = task_config["dev_text_file"]
-    args.image_dir = task_config["image_dir"]
-    
-    # 模型参数
-    args.text_model_name = task_config["text_model_name"]
-    args.image_model_name = task_config["image_model_name"]
-    args.fusion_strategy = task_config["fusion_strategy"]
-    args.num_heads = task_config["num_heads"]
-    args.mode = task_config["mode"]
-    args.hidden_dim = task_config["hidden_dim"]
-    args.dropout_prob = task_config["dropout_prob"]
-    args.num_labels = task_config["num_labels"]
-    args.enable_bilstm_head = int(task_config.get("enable_bilstm_head", global_params.get("enable_bilstm_head", 1)))
-    
-    # 训练参数
-    args.epochs = task_config["epochs"]
-    args.batch_size = task_config["batch_size"]
-    args.lr = task_config["lr"]
-    args.weight_decay = task_config["weight_decay"]
-    args.step_size = task_config["step_size"]
-    args.gamma = task_config["gamma"]
-    args.patience = task_config["patience"]
-    args.num_workers = global_params.get("num_workers", 4)
-    
-    # 持续学习策略参数
-    for key in ["ewc", "ewc_lambda", "replay", "memory_percentage", "replay_ratio", 
-                "replay_frequency", "lwf", "lwf_T", "lwf_alpha", "lwf_decay",
-                "si", "si_epsilon", "si_decay", "mas", "mas_eps", "gem", "gem_mem",
-                "pnn", "tam_cl", "moe_adapters", "moe_num_experts", "moe_top_k",
-                "ddas", "ddas_threshold", "clap4clip", "mymethod", "deqa"]:
-        if key in task_config:
-            setattr(args, key, task_config[key])
-        else:
-            setattr(args, key, 0)  # 默认关闭
-    
-    # DEQA特定参数
-    if task_config.get("deqa", 0):
-        args.deqa_use_description = task_config.get("deqa_use_description", True)
-        args.deqa_use_clip = task_config.get("deqa_use_clip", True)
-        args.deqa_ensemble_method = task_config.get("deqa_ensemble_method", "weighted")
-        args.deqa_freeze_old_experts = task_config.get("deqa_freeze_old_experts", True)
-        args.deqa_distill_weight = task_config.get("deqa_distill_weight", 0.5)
-        args.description_file = task_config.get("description_file", None)
-    
-    # 标签嵌入参数
-    args.use_label_embedding = task_config.get("use_label_embedding", False)
-    args.label_emb_dim = task_config.get("label_emb_dim", 128)
-    args.use_similarity_reg = task_config.get("use_similarity_reg", True)
-    args.similarity_weight = task_config.get("similarity_weight", 0.1)
-    args.label_embedding_path = task_config.get("label_embedding_path", None)
-    
-    # 模型头部参数
-    args.triaffine = task_config.get("triaffine", 1)
-    args.span_hidden = task_config.get("span_hidden", 256)
-    
-    # CRF和Span Loss参数（兼容布尔值和整数）
-    args.use_crf = int(task_config.get("use_crf", 1))  # 转换为int，默认启用
-    args.use_span_loss = int(task_config.get("use_span_loss", 1))  # 转换为int，默认启用
-    args.boundary_weight = task_config.get("boundary_weight", 0.2)
-    args.span_f1_weight = task_config.get("span_f1_weight", 0.0)
-    args.transition_weight = task_config.get("transition_weight", 0.0)
-    
-    # 图平滑参数
-    args.graph_smooth = task_config.get("graph_smooth", 1)
-    args.graph_tau = task_config.get("graph_tau", 0.5)
-    
-    # 目录参数
-    args.ewc_dir = global_params["ewc_dir"]
-    args.gem_mem_dir = global_params["gem_mem_dir"]
-    args.save_checkpoints = int(global_params.get("save_checkpoints", 0))
-    
-    # 日志参数
-    args.log_file = None
+    # 构造完整参数
+    args = _build_args(task_config, global_params, pretrained_model_path)
     
     print(f"Task parameters:")
     print(f"  Task: {args.task_name}")

@@ -695,7 +695,8 @@ def create_optimizer(model, args):
                     })
             
             # 2. Task Heads参数（分层设置）
-            for head_name, head in model.task_heads.items():
+            for head_name, head_entry in model.task_heads.items():
+                head = head_entry.get("head", head_entry) if isinstance(head_entry, dict) else head_entry
                 # BiLSTM层（中等学习率）
                 if hasattr(head, 'bilstm'):
                     param_groups.append({
@@ -721,9 +722,10 @@ def create_optimizer(model, args):
                 
                 # 其他层（默认学习率）
                 other_params = []
-                for name, param in head.named_parameters():
-                    if not any(key in name for key in ['bilstm', 'classifier', 'crf']):
-                        other_params.append(param)
+                if hasattr(head, "named_parameters"):
+                    for name, param in head.named_parameters():
+                        if not any(key in name for key in ['bilstm', 'classifier', 'crf']):
+                            other_params.append(param)
                 if other_params:
                     param_groups.append({
                         'params': other_params,

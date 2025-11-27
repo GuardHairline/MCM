@@ -12,6 +12,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from typing import Dict, Any, Optional, Tuple
+import os
+from pathlib import Path
+import json
 import time
 import logging
 from collections import Counter
@@ -20,17 +23,52 @@ from continual.metrics import ContinualMetrics, compute_metrics_example
 from continual.label_embedding_manager import LabelEmbeddingManager
 from continual.label_config import get_label_manager
 from modules.evaluate import evaluate_single_task
+from utils.decode import decode_mate, decode_mner, decode_mabsa
+import json
 from utils.span_loss import SpanLoss, compute_boundary_loss
 
 logger = logging.getLogger(__name__)
+
+
+def select_debug_records(debug_records, debug_samples):
+    """
+    从debug_records中抽取前50和后50（或不超过debug_samples数量）用于写盘。
+    返回(records, front_count, back_count)。
+    """
+    if debug_samples <= 0 or not debug_records:
+        return [], 0, 0
+
+    records_to_write = debug_records
+    front_written = 0
+    back_written = 0
+
+    if len(debug_records) > debug_samples:
+        front_n = min(50, debug_samples)
+        back_n = min(50, debug_samples - front_n)
+        if back_n == 0 and debug_samples > front_n:
+            back_n = debug_samples - front_n
+        if back_n > 0:
+            records_to_write = debug_records[:front_n] + debug_records[-back_n:]
+        else:
+            records_to_write = debug_records[:front_n]
+        front_written, back_written = front_n, back_n
+    elif len(debug_records) > 100:
+        front_n = min(50, len(debug_records))
+        back_n = min(50, len(debug_records) - front_n)
+        records_to_write = debug_records[:front_n] + (debug_records[-back_n:] if back_n else [])
+        front_written, back_written = front_n, back_n
+    else:
+        front_written = len(records_to_write)
+
+    return records_to_write, front_written, back_written
 
 
 def train_epoch(model, train_loader, optimizer, device, args, 
                 ewc=None, fisher_selector=None, replay_memory=None,
                 lwf=None, si=None, mas=None, gem=None,
                 label_embedding_manager: Optional[LabelEmbeddingManager] = None,
-                ddas_optimizer=None, logger_obj=None):
-    """训练一个epoch（修复版）"""
+                ddas_optimizer=None, scheduler=None, logger_obj=None):
+    """训练一个epoch"""
     # 确保使用正确的任务头（使用非严格模式）
     if hasattr(model, 'set_active_head') and hasattr(args, 'session_name'):
         try:
@@ -38,7 +76,7 @@ def train_epoch(model, train_loader, optimizer, device, args,
         except:
             pass  # 失败时使用当前head
     
-    # 确保base_model的mode正确设置（重要！）
+    # 确保base_model的mode正确设置
     if hasattr(model, 'base_model') and hasattr(model.base_model, 'mode'):
         current_mode = getattr(args, 'mode', 'multimodal')
         model.base_model.mode = current_mode
@@ -413,6 +451,8 @@ def train_epoch(model, train_loader, optimizer, device, args,
             gem.project_gradients()
         
         optimizer.step()
+        if scheduler is not None:
+            scheduler.step()
         
         # SI 梯度累积（在optimizer.step()之后）
         if si is not None:
@@ -428,13 +468,14 @@ def train_epoch(model, train_loader, optimizer, device, args,
             ddas_optimizer.step()
             ddas_feats.clear()
         
-        total_loss += loss.item()
-        total_samples += input_ids.size(0)
+        batch_size = input_ids.size(0)
+        total_loss += loss.item() * batch_size
+        total_samples += batch_size
         
         if logger_obj and batch_idx % 10 == 0:
             logger_obj.info(f"Batch {batch_idx}/{len(train_loader)}: loss={loss.item():.4f}")
     
-    avg_loss = total_loss / len(train_loader) if len(train_loader) > 0 else 0.0
+    avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
     if logger_obj:
         logger_obj.info(f"Epoch total_loss={total_loss:.4f}, avg_loss={avg_loss:.4f}, total_samples={total_samples}")
     
@@ -443,6 +484,8 @@ def train_epoch(model, train_loader, optimizer, device, args,
 
 def validate_epoch(model, val_loader, device, args, logger=None):
     """验证一个epoch（计算loss和metrics）"""
+    debug_samples = getattr(args, "debug_samples", 0)
+    debug_records = []
     # 确保使用正确的任务头（使用非严格模式）
     if hasattr(model, 'set_active_head') and hasattr(args, 'session_name'):
         try:
@@ -465,7 +508,7 @@ def validate_epoch(model, val_loader, device, args, logger=None):
     total_samples = 0
     
     with torch.no_grad():
-        for batch in val_loader:
+        for batch_idx, batch in enumerate(val_loader):
             # 数据移到device
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
@@ -480,72 +523,98 @@ def validate_epoch(model, val_loader, device, args, logger=None):
             if image_tensor is not None:
                 image_tensor = image_tensor.to(device)
             
-            if labels is not None:
-                labels = labels.to(device)
-                
-                # 前向传播
-                try:
-                    # 处理不同的模型接口
-                    if hasattr(args, 'tam_cl') and args.tam_cl:
-                        out = model(input_ids, attention_mask, token_type_ids, image_tensor, 
-                                  session_id=args.session_name)
-                        if isinstance(out, tuple) and len(out) >= 2:
-                            loss = out[0] if isinstance(out[0], torch.Tensor) and out[0].dim() == 0 else out[1]
-                        else:
-                            # 没有loss，跳过
-                            continue
+            if labels is None:
+                continue
+            labels = labels.to(device)
+            
+            try:
+                task_config = get_label_manager().get_task_config(args.task_name)
+                is_seq_task = task_config.task_type.value == "token" if task_config else False
+                if is_seq_task:
+                    # 序列任务：显式调用 base_model + head，获取 CRF/CE loss（与训练一致）
+                    fused_feat = model.base_model(
+                        input_ids, attention_mask, token_type_ids, image_tensor,
+                        return_sequence=True
+                    )
+                    head_out = model.head(fused_feat, labels=labels, mask=attention_mask)
+                    if isinstance(head_out, tuple):
+                        loss, logits = head_out
                     else:
-                        # 标准forward调用
-                        out = model(input_ids, attention_mask, token_type_ids, image_tensor)
-                        
-                        if isinstance(out, tuple):
-                            # 通常格式: (loss, logits) 或 (logits,)
-                            if len(out) >= 2 and isinstance(out[0], torch.Tensor) and out[0].dim() == 0:
-                                loss = out[0]
-                            else:
-                                # 没有loss，需要手动计算
-                                logits = out[0] if isinstance(out, tuple) else out
-                                loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
-                                
-                                # 判断任务类型
-                                task_config = get_label_manager().get_task_config(args.task_name)
-                                is_seq_task = task_config.task_type.value == "token" if task_config else False
-                                
-                                if is_seq_task:
-                                    # 序列标注任务
-                                    num_labels = logits.size(-1)
-                                    loss = loss_fct(logits.view(-1, num_labels), labels.view(-1))
-                                else:
-                                    # 句级分类任务
-                                    loss = loss_fct(logits, labels)
+                        logits = head_out
+                        loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
+                        num_labels = logits.size(-1)
+                        loss = loss_fct(logits.view(-1, num_labels), labels.view(-1))
+                else:
+                    # 句级/其他任务：保持原逻辑
+                    out = model(input_ids, attention_mask, token_type_ids, image_tensor)
+                    if isinstance(out, tuple):
+                        if len(out) >= 2 and isinstance(out[0], torch.Tensor) and out[0].dim() == 0:
+                            loss = out[0]
+                            logits = out[1]
                         else:
-                            # 单个tensor，需要手动计算loss
-                            logits = out
+                            logits = out[0] if isinstance(out, tuple) else out
                             loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
-                            task_config = get_label_manager().get_task_config(args.task_name)
-                            is_seq_task = task_config.task_type.value == "token" if task_config else False
-                            
-                            if is_seq_task:
-                                num_labels = logits.size(-1)
-                                loss = loss_fct(logits.view(-1, num_labels), labels.view(-1))
-                            else:
-                                loss = loss_fct(logits, labels)
+                            loss = loss_fct(logits, labels)
+                    else:
+                        logits = out
+                        loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
+                        loss = loss_fct(logits, labels)
+                
+                if loss is not None:
+                    bs = input_ids.size(0)
+                    total_loss += loss.item() * bs
+                    total_samples += bs
                     
-                    # 累积loss
-                    if loss is not None:
-                        total_loss += loss.item() * input_ids.size(0)
-                        total_samples += input_ids.size(0)
-                        
-                except Exception as e:
-                    if logger:
-                        logger.warning(f"验证时计算loss失败: {e}")
-                    continue
+                    if debug_samples and len(debug_records) < debug_samples and logits is not None:
+                        preds = logits.argmax(dim=-1) if logits.dim() >= 2 else logits.argmax(dim=-1)
+                        for i in range(min(bs, debug_samples - len(debug_records))):
+                            valid_len = (labels[i] != -100).sum().item()
+                            gold_seq = labels[i, :valid_len].cpu().tolist()
+                            pred_seq = preds[i, :valid_len].cpu().tolist() if preds.dim() > 1 else preds.cpu().tolist()
+                            if args.task_name == "mner":
+                                pred_span = list(decode_mner(pred_seq))
+                                gold_span = list(decode_mner(gold_seq))
+                            elif args.task_name == "mate":
+                                pred_span = list(decode_mate(pred_seq))
+                                gold_span = list(decode_mate(gold_seq))
+                            elif args.task_name == "mabsa":
+                                pred_span = list(decode_mabsa(pred_seq))
+                                gold_span = list(decode_mabsa(gold_seq))
+                            else:
+                                pred_span = []
+                                gold_span = []
+                            debug_records.append({
+                                "batch_idx": batch_idx,
+                                "sample_idx": i,
+                                "valid_len": valid_len,
+                                "gold_seq": gold_seq,
+                                "pred_seq": pred_seq,
+                                "gold_spans": gold_span,
+                                "pred_spans": pred_span
+                            })
+                    
+            except Exception as e:
+                if logger:
+                    logger.warning(f"验证时计算loss失败: {e}")
+                continue
     
     # 计算平均loss
     avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
     
     # 使用 evaluate_single_task 计算详细metrics
     metrics = evaluate_single_task(model, args.task_name, "dev", device, args)
+    if debug_samples > 0 and debug_records:
+        log_dir = Path(os.path.dirname(args.output_model_path) or ".")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / f"{args.session_name}_debug_samples.jsonl"
+
+        records_to_write, front_written, back_written = select_debug_records(debug_records, debug_samples)
+
+        with log_file.open("a", encoding="utf-8") as f:
+            for rec in records_to_write:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        if logger:
+            logger.info(f"✅ Debug samples written to {log_file} (first {front_written}, last {back_written})")
     
     return avg_loss, metrics
 
@@ -584,7 +653,10 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, device, a
         train_loss = train_epoch(
             model, train_loader, optimizer, device, args,
             ewc, fisher_selector, replay_memory, lwf, si, mas, gem,
-            label_embedding_manager, ddas_optimizer, logger
+            label_embedding_manager=label_embedding_manager,
+            ddas_optimizer=ddas_optimizer,
+            scheduler=scheduler,
+            logger_obj=logger
         )
                 
         # 验证
@@ -615,10 +687,6 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, device, a
             no_improve_count += 1
             if logger:
                 logger.info(f"✗ No improvement for {no_improve_count} epoch(s)")
-        
-        # 学习率调度
-        if scheduler:
-            scheduler.step()
         
         epoch_time = time.time() - start_time
         

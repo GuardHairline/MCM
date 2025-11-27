@@ -909,7 +909,7 @@ class TaskConfigGenerator:
             "span_f1_weight": task_params.get("span_f1_weight", 0.0),
             "transition_weight": task_params.get("transition_weight", 0.0),
             # 图平滑参数
-            "graph_smooth": task_params.get("graph_smooth", 1),
+            "graph_smooth": task_params.get("graph_smooth", 0),
             "graph_tau": task_params.get("graph_tau", 0.5),
             # BiLSTM参数（新增）
             "use_bilstm": task_params.get("use_bilstm", 1),  # 默认使用BiLSTM

@@ -102,7 +102,7 @@ def create_train_parser() -> argparse.ArgumentParser:
                        help="Use hierarchical multitask model with token and sentence heads")
     parser.add_argument("--label_emb_dim", type=int, default=128,
                        help="Label embedding dimension")
-    parser.add_argument("--use_similarity_reg", action="store_true", default=第一个是False,
+    parser.add_argument("--use_similarity_reg", action="store_true", default=False,
                        help="Use similarity regularization")
     parser.add_argument("--similarity_weight", type=float, default=0.1,
                        help="Similarity regularization weight")
@@ -110,6 +110,8 @@ def create_train_parser() -> argparse.ArgumentParser:
                        help="Label embedding save/load path")
     parser.add_argument("--label_emb_path", type=str, default="checkpoints/label_embedding.pt",
                        help="Path to label embedding (legacy)")
+    parser.add_argument("--debug_samples", type=int, default=0,
+                       help="Number of dev samples to dump gold/pred spans for debugging")
     
     # ========== 持续学习策略参数 ==========
     # EWC
