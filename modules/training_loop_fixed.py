@@ -568,9 +568,14 @@ def validate_epoch(model, val_loader, device, args, logger=None):
                     if debug_samples and len(debug_records) < debug_samples and logits is not None:
                         preds = logits.argmax(dim=-1) if logits.dim() >= 2 else logits.argmax(dim=-1)
                         for i in range(min(bs, debug_samples - len(debug_records))):
-                            valid_len = (labels[i] != -100).sum().item()
-                            gold_seq = labels[i, :valid_len].cpu().tolist()
-                            pred_seq = preds[i, :valid_len].cpu().tolist() if preds.dim() > 1 else preds.cpu().tolist()
+                            # 仅保留有效token（排除-100以及padding位置）
+                            valid_mask = labels[i] != -100
+                            gold_seq = labels[i][valid_mask].cpu().tolist()
+                            if preds.dim() > 1:
+                                pred_seq = preds[i][valid_mask].cpu().tolist()
+                            else:
+                                pred_seq = preds.cpu().tolist()
+                            # 解码span（0=O，1/2=B/I-PER，3/4=B/I-ORG，5/6=B/I-LOC，7/8=B/I-MISC）
                             if args.task_name == "mner":
                                 pred_span = list(decode_mner(pred_seq))
                                 gold_span = list(decode_mner(gold_seq))
@@ -586,7 +591,7 @@ def validate_epoch(model, val_loader, device, args, logger=None):
                             debug_records.append({
                                 "batch_idx": batch_idx,
                                 "sample_idx": i,
-                                "valid_len": valid_len,
+                                "valid_len": int(valid_mask.sum().item()),
                                 "gold_seq": gold_seq,
                                 "pred_seq": pred_seq,
                                 "gold_spans": gold_span,
