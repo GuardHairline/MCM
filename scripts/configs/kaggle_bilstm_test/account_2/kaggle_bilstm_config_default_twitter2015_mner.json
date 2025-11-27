@@ -38,7 +38,7 @@
       "boundary_weight": 0.2,
       "span_f1_weight": 0.0,
       "transition_weight": 0.0,
-      "graph_smooth": 1,
+      "graph_smooth": 0,
       "graph_tau": 0.5,
       "use_bilstm": 1,
       "bilstm_hidden_size": 256,
@@ -47,7 +47,8 @@
       "crf_lr": 0.001,
       "num_workers": 4,
       "description": "默认配置：hidden_size=256, num_layers=2",
-      "enable_bilstm_head": 1,
+      "enable_bilstm_head": 0,
+      "debug_samples": 100,
       "pretrained_model_path": null,
       "output_model_path": "checkpoints/kaggle_mner_twitter2015_textonly_config_default.pt"
     },
@@ -89,7 +90,7 @@
       "boundary_weight": 0.2,
       "span_f1_weight": 0.0,
       "transition_weight": 0.0,
-      "graph_smooth": 1,
+      "graph_smooth": 0,
       "graph_tau": 0.5,
       "use_bilstm": 1,
       "bilstm_hidden_size": 256,
@@ -98,7 +99,8 @@
       "crf_lr": 0.001,
       "num_workers": 4,
       "description": "默认配置：hidden_size=256, num_layers=2",
-      "enable_bilstm_head": 1,
+      "enable_bilstm_head": 0,
+      "debug_samples": 100,
       "pretrained_model_path": "checkpoints/kaggle_mner_twitter2015_textonly_config_default.pt",
       "output_model_path": "checkpoints/kaggle_mner_twitter2015_multimodal_config_default.pt"
     }
@@ -110,7 +112,7 @@
     "gem_mem_dir": "checkpoints/gem_memory",
     "description": "BiLSTM config_default test for mner on twitter2015",
     "save_checkpoints": 1,
-    "enable_bilstm_head": 1
+    "enable_bilstm_head": 0
   },
   "experiment_info": {
     "purpose": "BiLSTM Head Parameter Testing",
