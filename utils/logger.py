@@ -40,8 +40,6 @@ def setup_logger(log_level=logging.INFO, args=None):
         strategy  = "moe_adapters"
         if args.ddas:
             strategy += "-ddas"
-    if args.mymethod:
-        strategy = "mymethod"
     if args.use_label_embedding:
         strategy += "_label_emb"
 

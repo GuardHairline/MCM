@@ -675,15 +675,33 @@ def create_optimizer(model, args):
             
             # 1. Text Encoder参数（低学习率）
             if hasattr(model, 'base_model'):
+                # 兼容 text_model (Enhanced) 和 text_encoder (Base)
                 if hasattr(model.base_model, 'text_model'):
+                    text_module = model.base_model.text_model
+                elif hasattr(model.base_model, 'text_encoder'):
+                    text_module = model.base_model.text_encoder
+                else:
+                    text_module = None
+                
+                if text_module is not None:
                     param_groups.append({
-                        'params': model.base_model.text_model.parameters(),
+                        'params': text_module.parameters(),
                         'lr': args.lr,
                         'weight_decay': args.weight_decay
                     })
+                    print(f"✓ Optimizer: Added text encoder params (lr={args.lr})") # 添加日志以确认
+
+                # 兼容 image_model (Enhanced) 和 image_encoder (Base)
                 if hasattr(model.base_model, 'image_model'):
+                    img_module = model.base_model.image_model
+                elif hasattr(model.base_model, 'image_encoder'):
+                    img_module = model.base_model.image_encoder
+                else:
+                    img_module = None
+
+                if img_module is not None:
                     param_groups.append({
-                        'params': model.base_model.image_model.parameters(),
+                        'params': img_module.parameters(),
                         'lr': args.lr,
                         'weight_decay': args.weight_decay
                     })
