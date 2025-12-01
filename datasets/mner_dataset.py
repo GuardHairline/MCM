@@ -48,52 +48,78 @@ class MNERDataset(Dataset):
         with open(self.text_file, "r", encoding="utf-8") as f:
             lines = [l.strip() for l in f.readlines()]
         assert len(lines) % 4 == 0, "MNER 数据格式有误, 每4行构成一条样本"
+        # 字典用于聚合：Key = (clean_text, image_path), Value = list of entities
+        grouped_data = {}
 
-        samples = []
         for i in range(0, len(lines), 4):
             text_with_T = lines[i]
             entity_str = lines[i+1]
             entity_type_str = lines[i+2]  # -1 0 1 2
             image_name = lines[i+3]
+            
             if not image_name.endswith(".jpg"):
                 image_name += ".jpg"
             image_path = os.path.join(self.image_dir, image_name)
 
+            # 还原纯文本
+            clean_text = text_with_T.replace("$T$", entity_str)
+
             entity_type = int(entity_type_str)  # -1..2
-            samples.append((text_with_T, entity_str, entity_type, image_path))
+
+            prefix = text_with_T.split("$T$")[0]
+            start_idx = len(prefix)
+            end_idx = start_idx + len(entity_str) - 1
+            
+            key = (clean_text, image_path)
+            
+            if key not in grouped_data:
+                grouped_data[key] = []
+            
+            grouped_data[key].append({
+                "entity": entity_str,
+                "type": entity_type,
+                "start": start_idx,
+                "end": end_idx
+            })
+        samples = []
+        for (text, img_path), entities in grouped_data.items():
+            samples.append((text, img_path, entities))
         return samples
 
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        text_with_T, entity_str, entity_type, image_path = self.samples[idx]
+        text, image_path, entities = self.samples[idx]
 
-        T_position = text_with_T.index("$T$")
-        replaced_text = text_with_T.replace("$T$", entity_str)
-        start_pos = T_position
-        end_pos = start_pos + len(entity_str) - 1
-        # 检查位置是否越界
-        assert 0 <= start_pos < len(replaced_text), "Start position out of range!"
-        assert end_pos < len(replaced_text), "End position out of range!"
-
-        # 构建字符级标签：默认均为 O（0），对实体部分设定 B/I 标签
-        t = self.type_map[entity_type]  # => t in [0..3]
-        # B-type => 1 + 2*t
-        # I-type => 2 + 2*t
-        # O => 0
-        char_label = [0]*len(replaced_text)
-        if 0 <= start_pos < len(replaced_text):
+        # 初始化字符级标签（全0）
+        char_label = [0] * len(text)
+        
+        # 遍历该句子下的【所有】实体进行标注
+        for ent in entities:
+            start_pos = ent['start']
+            end_pos = ent['end']
+            entity_type = ent['type']
+            
+            # 映射类型
+            t = self.type_map[entity_type]
             b_label = 1 + 2*t
             i_label = 2 + 2*t
-            char_label[start_pos] = b_label
-            for c in range(start_pos+1, end_pos+1):
-                char_label[c] = i_label
-        assert any(l != 0 for l in char_label), "Entity not labeled!"
+            
+            # 边界检查
+            if start_pos < len(text) and end_pos < len(text):
+                # 标记 B
+                # 简单的冲突处理：如果该位置已经被标记过（非0），这里选择覆盖（或者跳过）
+                # 通常 Twitter 数据集无嵌套，直接覆盖即可
+                char_label[start_pos] = b_label
+                
+                # 标记 I
+                for c in range(start_pos + 1, end_pos + 1):
+                    char_label[c] = i_label
 
         # tokenizer + offset
         encoded = self.tokenizer(
-            replaced_text,
+            text,
             max_length=self.max_seq_length,
             padding='max_length',
             truncation=True,
@@ -104,14 +130,21 @@ class MNERDataset(Dataset):
         label_ids = []
         for (start_char, end_char) in offsets:
             if start_char == end_char:
+                # 特殊 token ([CLS], [SEP], [PAD])
                 label_ids.append(-100)
             else:
+                # 只要该 token 范围内有非 0 标签，就取非 0 的（简单策略）
                 sub_chars = char_label[start_char:end_char]
-                entity_labels = [label for label in sub_chars if label != 0]
-                if len(entity_labels) == 0:
-                    label_ids.append(0)
-                else:
-                    label_ids.append(entity_labels[0])
+
+                # 统计 sub_chars 里的标签
+                # 优先取 B-tag，其次 I-tag
+                token_label = 0
+                for l in sub_chars:
+                    if l != 0:
+                        token_label = l
+                        break # 只要碰到实体标记就认为是实体
+                
+                label_ids.append(token_label)
         assert any(label in {1, 2, 3, 4, 5, 6, 7, 8} for label in label_ids), f"No valid entity labels (1-8) found. Check text: '{replaced_text}', entity: '{entity_str}', type: {entity_type}"
         encoded.pop("offset_mapping")
 

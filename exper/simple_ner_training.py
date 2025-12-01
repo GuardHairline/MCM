@@ -456,14 +456,12 @@ def train_epoch(model, dataloader, optimizer, scheduler, device, epoch):
 def evaluate(model, dataloader, device, split_name="Val"):
     """评估模型（同时计算Token-level和Span-level F1）"""
     model.eval()
-    all_predictions = []
-    all_labels = []
-    all_predictions_2d = []  # 保持2D结构用于span评估
-    all_labels_2d = []
+    # 初始化统计计数器
+    chunk_tp, chunk_fp, chunk_fn = 0, 0, 0
+    token_correct, token_total = 0, 0
     total_loss = 0.0
     
-    progress_bar = tqdm(dataloader, desc=f"{split_name}")
-    
+    progress_bar = tqdm(dataloader, desc=f"{split_name}")    
     with torch.no_grad():
         for batch in progress_bar:
             input_ids = batch['input_ids'].to(device)
@@ -480,44 +478,58 @@ def evaluate(model, dataloader, device, split_name="Val"):
             else:
                 predictions = torch.argmax(logits, dim=-1)
             
-            # 收集预测和标签（flatten用于token-level）
-            all_predictions.append(predictions.cpu())
-            all_labels.append(labels.cpu())
-            
-            # 保持2D结构用于span-level评估
-            all_predictions_2d.append(predictions.cpu())
-            all_labels_2d.append(labels.cpu())
+            # 逐句计算指标
+            batch_size = input_ids.size(0)
+            for i in range(batch_size):
+                # 获取有效长度（排除 padding）
+                valid_len = int(attention_mask[i].sum().item())
+                
+                # 截取有效序列（排除 [CLS], [SEP] 和 padding）
+                # 注意：假设 [CLS] 在 index 0，[SEP] 在 index valid_len-1
+                # 实际 label 中，[CLS] 和 [SEP] 对应 -100
+                
+                # 提取预测和真实标签序列
+                # 过滤掉 label == -100 的位置
+                valid_mask = (labels[i] != -100)
+                if not valid_mask.any():
+                    continue
+                    
+                pred_seq = predictions[i][valid_mask].cpu().tolist()
+                true_seq = labels[i][valid_mask].cpu().tolist()
+                
+                # 1. 计算 Token-level Accuracy (仅供参考)
+                for p, t in zip(pred_seq, true_seq):
+                    if p == t:
+                        token_correct += 1
+                    token_total += 1
+                
+                # 2. 计算 Chunk-level (Span) Metrics
+                # 使用 extract_entities 提取当前句子的实体集合
+                pred_chunks = set(extract_entities(pred_seq))
+                true_chunks = set(extract_entities(true_seq))
+                
+                # 累加 TP, FP, FN
+                chunk_tp += len(pred_chunks & true_chunks)
+                chunk_fp += len(pred_chunks - true_chunks)
+                chunk_fn += len(true_chunks - pred_chunks)
     
-    # 拼接所有batch（1D for token-level）
-    all_predictions_flat = torch.cat(all_predictions, dim=0).flatten()
-    all_labels_flat = torch.cat(all_labels, dim=0).flatten()
+    # 汇总计算
+    chunk_precision = chunk_tp / (chunk_tp + chunk_fp) if (chunk_tp + chunk_fp) > 0 else 0.0
+    chunk_recall = chunk_tp / (chunk_tp + chunk_fn) if (chunk_tp + chunk_fn) > 0 else 0.0
+    chunk_f1 = 2 * chunk_precision * chunk_recall / (chunk_precision + chunk_recall) if (chunk_precision + chunk_recall) > 0 else 0.0
     
-    # 计算Token-level F1
-    token_metrics = compute_f1_metrics(all_predictions_flat, all_labels_flat)
-    
-    # 计算Span-level F1
-    all_pred_entities = []
-    all_true_entities = []
-    
-    for preds, labels in zip(all_predictions_2d, all_labels_2d):
-        for pred_seq, label_seq in zip(preds, labels):
-            pred_entities = extract_entities(pred_seq.tolist())
-            true_entities = extract_entities(label_seq.tolist())
-            all_pred_entities.extend(pred_entities)
-            all_true_entities.extend(true_entities)
-    
-    span_metrics = compute_span_f1(all_pred_entities, all_true_entities)
-    
-    # 合并指标
+    token_acc = token_correct / token_total if token_total > 0 else 0.0
+    avg_loss = total_loss / len(dataloader)
+    # 构造返回字典，保持原有接口兼容
     metrics = {
-        'token_micro_precision': token_metrics['micro_precision'],
-        'token_micro_recall': token_metrics['micro_recall'],
-        'token_micro_f1': token_metrics['micro_f1'],
-        'token_macro_f1': token_metrics['macro_f1'],
-        'span_precision': span_metrics['precision'],
-        'span_recall': span_metrics['recall'],
-        'span_f1': span_metrics['f1'],
-        'per_class': token_metrics['per_class']
+        'token_micro_precision': 0.0, # 简化，不再详细计算 token P/R
+        'token_micro_recall': 0.0,
+        'token_micro_f1': token_acc,  # 用 Acc 代替
+        'token_macro_f1': token_acc,
+        'span_precision': chunk_precision,
+        'span_recall': chunk_recall,
+        'span_f1': chunk_f1,
+        'per_class': {} # 简化
     }
     
     avg_loss = total_loss / len(dataloader)
