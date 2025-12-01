@@ -133,13 +133,15 @@ class MNERHeadBiLSTM(nn.Module):
             lstm_output, _ = nn.utils.rnn.pad_packed_sequence(
                 packed_output, batch_first=True, total_length=seq_len
             )
+            # 输出dropout
+            lstm_output = self.output_dropout(lstm_output)
         elif self.enable_bilstm:
             lstm_output, _ = self.bilstm(features)
+            # 输出dropout
+            lstm_output = self.output_dropout(lstm_output)
         else:
             lstm_output = features
         
-        # 3. 输出dropout
-        lstm_output = self.output_dropout(lstm_output)
         
         # 4. 分类
         logits = self.classifier(lstm_output)  # [batch_size, seq_len, num_labels]
