@@ -27,7 +27,11 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # 导入项目组件
 from datasets.mner_dataset import MNERDataset
-
+from utils.decode import decode_mner
+from visualize.feature_clustering_enhanced import visualize_task_enhanced
+import matplotlib.pyplot as plt
+import json
+from types import SimpleNamespace
 from torchcrf import CRF
 
 
@@ -49,6 +53,7 @@ class SimpleNERModel(nn.Module):
     def __init__(
         self,
         text_encoder_name: str = "microsoft/deberta-v3-base",
+        image_model_name: str = "google/vit-base-patch16-224-in21k",
         num_labels: int = 9,
         lstm_hidden: int = 256,
         lstm_layers: int = 2,
@@ -71,6 +76,28 @@ class SimpleNERModel(nn.Module):
         
         self.text_encoder = AutoModel.from_pretrained(model_path)
         encoder_dim = self.text_encoder.config.hidden_size  # 768
+
+        # 为对齐主框架，初始化图像分支但在 text-only 流程中不调用
+        self.mode = "text_only"
+        self.fusion_strategy = "concat"
+        try:
+            if image_model_name == "google/vit-base-patch16-224-in21k":
+                image_model_path = PROJECT_ROOT / "downloaded_model/vit-base-patch16-224-in21k"
+                if not image_model_path.exists():
+                    image_model_path = "google/vit-base-patch16-224-in21k"
+            else:
+                image_model_path = image_model_name
+            self.image_encoder = AutoModel.from_pretrained(image_model_path)
+            self.image_hidden_size = self.image_encoder.config.hidden_size
+            self.image_proj = nn.Linear(self.image_hidden_size, encoder_dim)
+            self.fc_concat = nn.Linear(encoder_dim * 2, encoder_dim)
+        except Exception as e:
+            # 保底：如果图像模型不可用，置为None，但不影响text-only训练
+            print(f"⚠️ 图像分支初始化失败（继续text-only）: {e}")
+            self.image_encoder = None
+            self.image_hidden_size = None
+            self.image_proj = None
+            self.fc_concat = None
         
         # BiLSTM layer
         self.dropout = nn.Dropout(dropout)
@@ -95,7 +122,7 @@ class SimpleNERModel(nn.Module):
             self.crf = None
             print("✓ 不使用CRF层")
     
-    def forward(self, input_ids, attention_mask, labels=None):
+    def forward(self, input_ids, attention_mask, labels=None, token_type_ids=None, image_tensor=None):
         """
         前向传播
         
@@ -526,6 +553,7 @@ def main():
         'lstm_layers': 2,
         'dropout': 0.3,
         'use_crf': True,
+        'image_encoder': 'google/vit-base-patch16-224-in21k',
         
         # 训练
         'batch_size': 16,
@@ -539,8 +567,14 @@ def main():
         
         # 其他
         'device': 'cuda' if torch.cuda.is_available() else 'cpu',
-        'seed': 42
+        'seed': 42,
+        'output_dir': PROJECT_ROOT / 'tests'
     }
+
+    # Kaggle 环境下输出到 /kaggle/working，便于直接打包下载
+    kaggle_work = Path("/kaggle/working")
+    if kaggle_work.exists():
+        CONFIG['output_dir'] = kaggle_work / "simple_ner_outputs"
     
     print("\n📋 配置:")
     for key, value in CONFIG.items():
@@ -691,6 +725,12 @@ def main():
     
     best_dev_f1 = 0.0
     best_epoch = 0
+    history = {
+        "train_loss": [],
+        "dev_loss": [],
+        "dev_span_f1": [],
+        "dev_token_f1": []
+    }
     
     for epoch in range(1, CONFIG['num_epochs'] + 1):
         print(f"\n{'=' * 80}")
@@ -713,13 +753,18 @@ def main():
         print(f"  Recall: {dev_metrics['span_recall']:.2%}")
         print(f"  F1: {dev_metrics['span_f1']:.2%} ⭐")
         
+        history["train_loss"].append(train_loss)
+        history["dev_loss"].append(dev_loss)
+        history["dev_span_f1"].append(dev_metrics["span_f1"])
+        history["dev_token_f1"].append(dev_metrics["token_micro_f1"])
+        
         # 保存最佳模型（以span F1为准）
         if dev_metrics['span_f1'] > best_dev_f1:
             best_dev_f1 = dev_metrics['span_f1']
             best_epoch = epoch
             
             # 保存模型
-            save_path = PROJECT_ROOT / 'tests/best_ner_model.pt'
+            save_path = output_dir / 'best_ner_model.pt'
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
@@ -737,12 +782,179 @@ def main():
     print("=" * 80)
     
     # 加载最佳模型
-    checkpoint = torch.load(PROJECT_ROOT / 'tests/best_ner_model.pt')
+    checkpoint = torch.load(output_dir / 'best_ner_model.pt')
     model.load_state_dict(checkpoint['model_state_dict'])
     print(f"✓ 加载最佳模型 (Epoch {checkpoint['epoch']})")
     
+    output_dir = CONFIG['output_dir']
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 绘制训练曲线
+    epochs = list(range(1, len(history["train_loss"]) + 1))
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, history["train_loss"], label="Train Loss")
+    plt.plot(epochs, history["dev_loss"], label="Dev Loss")
+    plt.plot(epochs, history["dev_span_f1"], label="Dev Span F1")
+    plt.plot(epochs, history["dev_token_f1"], label="Dev Token F1")
+    plt.xlabel("Epoch")
+    plt.ylabel("Value")
+    plt.title("Training Curves")
+    plt.legend()
+    curves_path = output_dir / "training_curves.png"
+    plt.savefig(curves_path, dpi=150)
+    plt.close()
+    print(f"✓ 训练曲线已保存: {curves_path}")
+    
+    # F1 散点图
+    plt.figure(figsize=(8, 5))
+    plt.scatter(epochs, history["dev_span_f1"], label="Span F1", marker="o")
+    plt.scatter(epochs, history["dev_token_f1"], label="Token F1", marker="x")
+    plt.xlabel("Epoch")
+    plt.ylabel("F1")
+    plt.title("Dev F1 Scatter")
+    plt.legend()
+    scatter_path = output_dir / "f1_scatter.png"
+    plt.savefig(scatter_path, dpi=150)
+    plt.close()
+    print(f"✓ F1散点图已保存: {scatter_path}")
+    
+    # 特征聚类可视化（t-SNE），优先复用增强版工具，失败则回退手动版
+    class _BaseWrapper(nn.Module):
+        def __init__(self, ner_model):
+            super().__init__()
+            self.ner_model = ner_model
+            self.text_encoder = ner_model.text_encoder
+            self.dropout = ner_model.dropout
+            self.mode = "text_only"
+        def forward(self, input_ids, attention_mask, token_type_ids=None, image_tensor=None, return_sequence=True):
+            text_outputs = self.text_encoder(input_ids=input_ids, attention_mask=attention_mask)
+            text_sequence = self.dropout(text_outputs.last_hidden_state)
+            return text_sequence  # (b, seq, hidden)
+    class _HeadWrapper(nn.Module):
+        def __init__(self, ner_model):
+            super().__init__()
+            self.ner_model = ner_model
+            self.bilstm = ner_model.bilstm
+            self.dropout = ner_model.dropout
+            self.classifier = ner_model.classifier
+        def forward(self, features):
+            # 直接在已对齐的序列上跑BiLSTM（不pack），用于可视化
+            lstm_out, _ = self.bilstm(features)
+            logits = self.classifier(self.dropout(lstm_out))
+            return logits
+    viz_wrapper = SimpleNamespace(
+        base_model=_BaseWrapper(model),
+        head=_HeadWrapper(model),
+        set_active_head=lambda *args, **kwargs: True
+    )
+    viz_args = SimpleNamespace(
+        task_name="mner",
+        session_name="simple_mner",
+        mode="text_only",
+        batch_size=CONFIG["batch_size"],
+        num_workers=0
+    )
+    tsne_ok = False
+    try:
+        viz_dir = output_dir / "feature_clustering"
+        visualize_task_enhanced(
+            model=viz_wrapper,
+            task_name="mner",
+            session_name="simple_mner",
+            device=CONFIG["device"],
+            args=viz_args,
+            save_dir=str(viz_dir),
+            split='dev',
+            max_samples=2000,
+            show_predictions=True,
+            config_name="simple_ner",
+            plot_dual_metrics=False
+        )
+        tsne_ok = True
+        print(f"✓ 特征聚类(t-SNE)已保存至: {viz_dir}")
+    except Exception as e:
+        print(f"⚠️ 特征聚类可视化失败（将使用手动回退）: {e}")
+
+    if not tsne_ok:
+        try:
+            from sklearn.manifold import TSNE
+            all_feat = []
+            all_lab = []
+            with torch.no_grad():
+                for batch in dev_loader:
+                    ids = batch["input_ids"].to(CONFIG["device"])
+                    mask = batch["attention_mask"].to(CONFIG["device"])
+                    out = model.text_encoder(input_ids=ids, attention_mask=mask).last_hidden_state  # (b, seq, h)
+                    # 取[CLS]或mask平均
+                    lengths = mask.sum(dim=1, keepdim=True).clamp(min=1)
+                    pooled = (out * mask.unsqueeze(-1)).sum(dim=1) / lengths  # (b, h)
+                    all_feat.append(pooled.cpu().numpy())
+                    gold = batch["labels"]
+                    # 句级标签用多数票（仅用于可视化）
+                    gold_cls = []
+                    for seq in gold:
+                        seq = seq[seq != -100]
+                        gold_cls.append(int(seq.mode()[0]) if len(seq) > 0 else 0)
+                    all_lab.append(np.array(gold_cls))
+            feats = np.concatenate(all_feat, axis=0)
+            labs = np.concatenate(all_lab, axis=0)
+            tsne = TSNE(n_components=2, perplexity=30, n_iter=500, init="pca")
+            emb = tsne.fit_transform(feats)
+            plt.figure(figsize=(8, 6))
+            plt.scatter(emb[:, 0], emb[:, 1], c=labs, cmap="tab10", s=8, alpha=0.7)
+            plt.colorbar(label="Label")
+            plt.title("t-SNE (manual fallback)")
+            viz_dir = output_dir / "feature_clustering"
+            viz_dir.mkdir(parents=True, exist_ok=True)
+            manual_path = viz_dir / "tsne_manual.png"
+            plt.savefig(manual_path, dpi=150)
+            plt.close()
+            print(f"✓ 手动t-SNE已保存: {manual_path}")
+        except Exception as e:
+            print(f"⚠️ 手动t-SNE也失败: {e}")
+    
     # 测试
     test_loss, test_metrics = evaluate(model, test_loader, CONFIG['device'], "Test")
+    
+    # 导出最多2000条DEV样本的gold/pred span
+    debug_limit = 2000
+    records = []
+    try:
+        with torch.no_grad():
+            for batch in dev_loader:
+                input_ids = batch['input_ids'].to(CONFIG['device'])
+                attention_mask = batch['attention_mask'].to(CONFIG['device'])
+                labels = batch['labels'].to(CONFIG['device'])
+                
+                loss, logits = model(input_ids, attention_mask, labels)
+                if model.use_crf:
+                    preds = model.decode(input_ids, attention_mask)
+                else:
+                    preds = torch.argmax(logits, dim=-1)
+                
+                for i in range(input_ids.size(0)):
+                    if len(records) >= debug_limit:
+                        break
+                    valid_mask = labels[i] != -100
+                    gold_seq = labels[i][valid_mask].cpu().tolist()
+                    pred_seq = preds[i][valid_mask].cpu().tolist()
+                    gold_spans = list(decode_mner(gold_seq))
+                    pred_spans = list(decode_mner(pred_seq))
+                    records.append({
+                        "gold_seq": gold_seq,
+                        "pred_seq": pred_seq,
+                        "gold_spans": gold_spans,
+                        "pred_spans": pred_spans
+                    })
+                if len(records) >= debug_limit:
+                    break
+        jsonl_path = output_dir / "dev_spans_2000.jsonl"
+        with jsonl_path.open("w", encoding="utf-8") as f:
+            for rec in records:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        print(f"✓ DEV样本gold/pred span已导出: {jsonl_path}，共 {len(records)} 条")
+    except Exception as e:
+        print(f"⚠️ DEV样本导出失败: {e}")
     
     print(f"\n{'=' * 80}")
     print("📊 最终结果")

@@ -67,6 +67,7 @@ def create_package(output_path, verbose=False):
     include_items = [
         'continual',
         'datasets',
+        'exper',
         'models',
         'modules',
         'scripts',
