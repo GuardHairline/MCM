@@ -716,14 +716,14 @@ def create_optimizer(model, args):
             for head_name, head_entry in model.task_heads.items():
                 head = head_entry.get("head", head_entry) if isinstance(head_entry, dict) else head_entry
                 # BiLSTM层（中等学习率）
-                if hasattr(head, 'bilstm'):
+                if hasattr(head, 'bilstm') and head.bilstm is not None:
                     param_groups.append({
                         'params': head.bilstm.parameters(),
                         'lr': lstm_lr,
                         'weight_decay': args.weight_decay
                     })
                 # Classifier层（中等学习率）
-                if hasattr(head, 'classifier'):
+                if hasattr(head, 'classifier') and head.classifier is not None:
                     param_groups.append({
                         'params': head.classifier.parameters(),
                         'lr': lstm_lr,

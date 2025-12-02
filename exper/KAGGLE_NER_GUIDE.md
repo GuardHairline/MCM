@@ -558,7 +558,145 @@ def run_experiment(config, exp_id):
     result_path = f'/kaggle/working/results_exp{exp_id}.json'
     with open(result_path, 'w') as f:
         json.dump(results, f, indent=2)
-  
+
+    print("\\n🎨 生成可视化与样例...")
+    output_dir = Path("/kaggle/working")
+    
+    # 1. 导出预测样例 (jsonl)
+    debug_limit = 2000
+    records = []
+    model.eval()
+    try:
+        with torch.no_grad():
+            for batch in dev_loader:
+                if len(records) >= debug_limit: break
+                
+                input_ids = batch['input_ids'].to(device)
+                attention_mask = batch['attention_mask'].to(device)
+                labels = batch['labels'].to(device)
+                
+                _, logits = model(input_ids, attention_mask, labels)
+                if model.use_crf:
+                    preds = model.decode(input_ids, attention_mask)
+                else:
+                    preds = torch.argmax(logits, dim=-1)
+                
+                for i in range(input_ids.size(0)):
+                    if len(records) >= debug_limit: break
+                    
+                    # 过滤padding
+                    valid_mask = labels[i] != -100
+                    gold_seq = labels[i][valid_mask].cpu().tolist()
+                    pred_seq = preds[i][valid_mask].cpu().tolist()
+                    
+                    # 解码span
+                    gold_spans = list(decode_mner(gold_seq))
+                    pred_spans = list(decode_mner(pred_seq))
+                    
+                    records.append({
+                        "exp_id": exp_id,
+                        "gold_seq": gold_seq,
+                        "pred_seq": pred_seq,
+                        "gold_spans": gold_spans,
+                        "pred_spans": pred_spans
+                    })
+        
+        # 保存样例
+        jsonl_path = output_dir / f"exp{exp_id}_samples.jsonl"
+        with open(jsonl_path, "w", encoding="utf-8") as f:
+            for rec in records:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\\n")
+        print(f"  ✓ 样例已导出: {jsonl_path}")
+        
+    except Exception as e:
+        print(f"  ⚠️ 样例导出失败: {e}")
+
+# 2. 生成 t-SNE (实体Token级聚类 - 严格筛除O标签)
+    try:
+        from sklearn.manifold import TSNE
+        import matplotlib.pyplot as plt
+        
+        all_entity_feats = []
+        all_entity_labs = []
+        
+        # 限制Token数量，避免计算太慢
+        max_tokens = 3000
+        collected_tokens = 0
+        
+        # 标签映射: (B/I 统一为一个类别)
+        # 1(B-PER), 2(I-PER) -> 0 (PER)
+        # 3(B-ORG), 4(I-ORG) -> 1 (ORG)
+        # 5(B-LOC), 6(I-LOC) -> 2 (LOC)
+        # 7(B-MISC), 8(I-MISC)-> 3 (MISC)
+        def map_label(l):
+            return (l - 1) // 2
+            
+        label_names = {0: 'PER', 1: 'ORG', 2: 'LOC', 3: 'MISC'}
+        
+        with torch.no_grad():
+            for batch in dev_loader:
+                if collected_tokens >= max_tokens: break
+                
+                ids = batch["input_ids"].to(device)
+                mask = batch["attention_mask"].to(device)
+                labels = batch["labels"].to(device)
+                
+                # 获取Token特征: (batch, seq, hidden)
+                out = model.text_encoder(input_ids=ids, attention_mask=mask).last_hidden_state
+                
+                # 展平所有batch
+                out_flat = out.view(-1, out.size(-1)) # (N, hidden)
+                labels_flat = labels.view(-1)         # (N)
+                
+                # 筛选条件: 不是Padding (-100) 且 不是O (0)
+                mask_entity = (labels_flat != -100) & (labels_flat != 0)
+                
+                if mask_entity.sum() > 0:
+                    entity_feats = out_flat[mask_entity]
+                    entity_labs = labels_flat[mask_entity]
+                    
+                    all_entity_feats.append(entity_feats.cpu().numpy())
+                    all_entity_labs.append(entity_labs.cpu().numpy())
+                    
+                    collected_tokens += entity_feats.size(0)
+                
+        if len(all_entity_feats) > 0:
+            feats = np.concatenate(all_entity_feats, axis=0)
+            raw_labs = np.concatenate(all_entity_labs, axis=0)
+            
+            # 如果token过多，随机采样以加快t-SNE
+            if feats.shape[0] > max_tokens:
+                indices = np.random.choice(feats.shape[0], max_tokens, replace=False)
+                feats = feats[indices]
+                raw_labs = raw_labs[indices]
+            
+            # 映射标签到实体大类
+            labs = np.array([map_label(l) for l in raw_labs])
+            
+            print(f"  t-SNE: 正在处理 {feats.shape[0]} 个实体Token...")
+            tsne = TSNE(n_components=2, init="pca", learning_rate='auto', random_state=42)
+            emb = tsne.fit_transform(feats)
+            
+            plt.figure(figsize=(10, 8))
+            # 绘制散点图
+            scatter = plt.scatter(emb[:, 0], emb[:, 1], c=labs, cmap="tab10", s=20, alpha=0.7)
+            
+            # 添加图例
+            handles, _ = scatter.legend_elements()
+            # 确保图例标签对应正确
+            legend_labels = [label_names.get(i, str(i)) for i in range(len(handles))]
+            plt.legend(handles, legend_labels, title="Entity Type")
+            
+            plt.title(f"Exp {exp_id} Entity Token Clustering (No 'O')")
+            plt.savefig(output_dir / f"exp{exp_id}_tsne_entity.png")
+            plt.close()
+            print(f"  ✓ t-SNE已保存: exp{exp_id}_tsne_entity.png")
+        else:
+            print("  ⚠️ 无实体Token用于 t-SNE (可能模型预测全为O或样本中无实体)")
+        
+    except Exception as e:
+        print(f"  ⚠️ t-SNE生成失败: {e}")
+
     print(f"\\n✓ 实验 #{exp_id} 完成")
     print(f"  最佳Span F1: {best_dev_f1:.2%} (Epoch {best_epoch})")
     print(f"  耗时: {elapsed:.2f} 小时")
