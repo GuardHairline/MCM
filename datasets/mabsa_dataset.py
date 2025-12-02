@@ -55,6 +55,7 @@ class MABSADataset(Dataset):
             lines = [l.strip() for l in f.readlines()]
         assert len(lines) % 4 == 0, "MABSA 数据格式有误，每条样本应占4行。"
 
+        # 聚合字典: Key = image_name
         grouped_data = {}
         
         for i in range(0, len(lines), 4):
@@ -68,6 +69,7 @@ class MABSADataset(Dataset):
             image_path = os.path.join(self.image_dir, image_name)
 
             clean_template = " ".join(text_with_T.split())
+            
             parts = clean_template.split("$T$")
             if len(parts) < 2:
                 print(f"[Warning] No $T$ found in line: {text_with_T}")

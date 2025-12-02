@@ -3,8 +3,7 @@ from datasets.mnre_dataset import MNREDataset
 from datasets.masc_dataset import MASCDataset
 from datasets.mate_dataset import MATEDataset
 from datasets.mner_dataset import MNERDataset
-from datasets.deqa_dataset import MASCDatasetDEQA, MATEDatasetDEQA
-from datasets.deqa_dataset_extended import MABSADatasetDEQA, MNERDatasetDEQA
+from datasets.deqa_dataset import MASCDatasetDEQA, MATEDatasetDEQA, MABSADatasetDEQA, MNERDatasetDEQA
 
 def get_dataset(task, split, args):
     """
