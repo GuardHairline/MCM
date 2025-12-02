@@ -66,10 +66,12 @@ class MASCDataset(Dataset):
                 image_name += ".jpg"
             image_path = os.path.join(self.image_dir, image_name)
 
+            clean_text = " ".join(text_with_T.split())
+
             sentiment = int(sentiment_str)  # -1,0,1
 
             # 记录
-            self.samples.append((text_with_T, aspect_term, sentiment, image_path))
+            self.samples.append((clean_text, aspect_term, sentiment, image_path))
 
     def __len__(self):
         return len(self.samples)
