@@ -1,19 +1,32 @@
-from models.task_heads.mate_head_bilstm import MATEHeadBiLSTM
+# models/task_heads/mate_head.py
+from models.task_heads.mner_head import MNERHead
 
-
-class MATEHead(MATEHeadBiLSTM):
+class MATEHead(MNERHead):
     """
-    兼容旧接口的MATE任务头，复用BiLSTM实现但禁用BiLSTM部分。
+    MATE任务头 (无 BiLSTM) - 继承自 MNERHead
+    
+    架构：
+        Input (768) 
+        → Dropout 
+        → Linear (3) 
+        → CRF (可选)
+        
+    说明：MATE (Aspect Term Extraction) 是一个 3 分类序列标注任务 (O, B, I)
     """
-
-    def __init__(self, input_dim, num_labels, dropout_prob=0.1, hidden_dim=None, use_crf=True):
-        hidden_size = hidden_dim if hidden_dim is not None else input_dim
+    
+    def __init__(
+        self, 
+        input_dim: int = 768, 
+        num_labels: int = 3,       # MATE 默认为 3 (O, B, I)
+        dropout_prob: float = 0.3, # Transformer 常用 dropout
+        hidden_dim: int = None,    # 兼容参数，无实际作用
+        use_crf: bool = True
+    ):
+        # 显式调用父类构造函数，传递 MATE 特定的参数
         super().__init__(
             input_dim=input_dim,
             num_labels=num_labels,
-            hidden_size=hidden_size,
-            num_lstm_layers=1,
-            dropout=dropout_prob,
-            use_crf=use_crf,
-            enable_bilstm=False
+            dropout_prob=dropout_prob,
+            hidden_dim=hidden_dim,
+            use_crf=use_crf
         )
