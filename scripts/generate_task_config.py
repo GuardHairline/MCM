@@ -904,7 +904,7 @@ class TaskConfigGenerator:
             "span_hidden": task_params.get("span_hidden", 256),
             # CRF和Span Loss参数
             "use_crf": task_params.get("use_crf", 1),  # 默认启用CRF
-            "use_span_loss": task_params.get("use_span_loss", 1),  # 默认启用Span Loss
+            "use_span_loss": task_params.get("use_span_loss", 0), 
             "boundary_weight": task_params.get("boundary_weight", 0.2),
             "span_f1_weight": task_params.get("span_f1_weight", 0.0),
             "transition_weight": task_params.get("transition_weight", 0.0),
@@ -912,7 +912,7 @@ class TaskConfigGenerator:
             "graph_smooth": task_params.get("graph_smooth", 0),
             "graph_tau": task_params.get("graph_tau", 0.5),
             # BiLSTM参数（新增）
-            "use_bilstm": task_params.get("use_bilstm", 1),  # 默认使用BiLSTM
+            "use_bilstm": task_params.get("use_bilstm", 0),  
             "bilstm_hidden_size": task_params.get("bilstm_hidden_size", 256),
             "bilstm_num_layers": task_params.get("bilstm_num_layers", 2),
             "lstm_lr": task_params.get("lstm_lr", 1e-4),

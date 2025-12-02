@@ -87,7 +87,7 @@ Use `scripts/generate_*_configs.py` to generate complete continual learning conf
       "train_text_file": "data/MASC/twitter2015/train.txt",
       "epochs": 15,
       "batch_size": 16,
-      "use_bilstm": 1,
+      "use_bilstm": 0,
       "bilstm_hidden_size": 256,
       ...
     },

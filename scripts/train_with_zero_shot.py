@@ -158,7 +158,6 @@ def _build_args(task_config: Dict[str, Any], global_params: Dict[str, Any], pret
     args_dict["data_dir"] = global_params.get("data_dir", args_dict.get("data_dir"))
     args_dict["dataset_name"] = global_params.get("dataset_name", args_dict.get("dataset_name"))
     args_dict["num_workers"] = global_params.get("num_workers", args_dict.get("num_workers", 4))
-    args_dict["enable_bilstm_head"] = int(task_config.get("enable_bilstm_head", global_params.get("enable_bilstm_head", args_dict.get("enable_bilstm_head", 1))))
 
     # 兼容目录/描述字段
     if "gem_mem_dir" in global_params:

@@ -48,7 +48,6 @@ def _build_args(task_config: Dict[str, Any], global_params: Dict[str, Any], pret
     args.hidden_dim = task_config["hidden_dim"]
     args.dropout_prob = task_config["dropout_prob"]
     args.num_labels = task_config["num_labels"]
-    args.enable_bilstm_head = task_config.get("enable_bilstm_head", global_params.get("enable_bilstm_head", 1))
 
     # 训练/调度参数（为兼容模型创建，值可随意但需存在）
     args.epochs = task_config.get("epochs", 1)
@@ -80,7 +79,7 @@ def _build_args(task_config: Dict[str, Any], global_params: Dict[str, Any], pret
     args.transition_weight = task_config.get("transition_weight", 0.0)
     args.graph_smooth = task_config.get("graph_smooth", 0)
     args.graph_tau = task_config.get("graph_tau", 0.5)
-    args.use_bilstm = task_config.get("use_bilstm", 1)
+    args.use_bilstm = task_config.get("use_bilstm", 0)
     args.bilstm_hidden_size = task_config.get("bilstm_hidden_size", 256)
     args.bilstm_num_layers = task_config.get("bilstm_num_layers", 2)
 

@@ -55,10 +55,8 @@ def create_train_parser() -> argparse.ArgumentParser:
                        help="Number of labels (auto-detect if -1)")
     
     # BiLSTM-CRF参数
-    parser.add_argument("--use_bilstm", type=int, default=1,
+    parser.add_argument("--use_bilstm", type=int, default=0,
                        help="Use BiLSTM layer in task heads (1=True, 0=False, default=1)")
-    parser.add_argument("--enable_bilstm_head", type=int, default=1,
-                       help="Global switch for BiLSTM heads (1=enabled, 0=disable even if config requests)")
     parser.add_argument("--use_crf", type=int, default=1,
                        help="Use CRF layer for sequence labeling (1=True, 0=False, default=1)")
     parser.add_argument("--bilstm_hidden_size", type=int, default=256,

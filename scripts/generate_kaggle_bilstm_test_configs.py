@@ -35,12 +35,11 @@ from scripts.generate_task_config import TaskConfigGenerator
 class KaggleBiLSTMTestGenerator:
     """Kaggle多账号BiLSTM测试配置生成器"""
     
-    def __init__(self, keep_checkpoints: bool = True, use_bilstm: int = 1, enable_bilstm_head: int = 1):
+    def __init__(self, keep_checkpoints: bool = True, use_bilstm: int = 1):
         # 使用基础配置生成器
         self.base_generator = TaskConfigGenerator()
         self.keep_checkpoints = keep_checkpoints
         self.use_bilstm = use_bilstm
-        self.enable_bilstm_head = enable_bilstm_head
         
         # BiLSTM超参数配置
         self.bilstm_configs = {
@@ -140,7 +139,6 @@ class KaggleBiLSTMTestGenerator:
         bilstm_params = self.bilstm_configs[config_type]
         task_config.update(bilstm_params)
         task_config["use_bilstm"] = self.use_bilstm
-        task_config["enable_bilstm_head"] = self.enable_bilstm_head
         task_config["debug_samples"] = 100  # 便于训练后输出dev样本对齐日志
         # 确保CRF启用
         task_config["use_crf"] = 1
@@ -211,7 +209,6 @@ class KaggleBiLSTMTestGenerator:
                 "gem_mem_dir": "checkpoints/gem_memory",
                 "description": f"BiLSTM {config_type} test for {task} on {dataset}",
                 "save_checkpoints": 1 if self.keep_checkpoints else 0,
-                "enable_bilstm_head": self.enable_bilstm_head
             }
             
             # 完整配置
@@ -830,19 +827,17 @@ def main():
                        help="数据集名称")
     parser.add_argument("--output-dir", type=str, default="scripts/configs/kaggle_bilstm_test",
                        help="输出目录")
-    parser.add_argument("--keep-checkpoints", type=int, choices=[0, 1], default=1,
+    parser.add_argument("--keep-checkpoints", type=int, choices=[0, 1], default=0,
                        help="是否在训练后保留checkpoint（1=保留，0=清理）")
-    parser.add_argument("--use-bilstm", type=int, choices=[0, 1], default=1,
+    parser.add_argument("--use-bilstm", type=int, choices=[0, 1], default=0,
                        help="任务配置中use_bilstm的值")
-    parser.add_argument("--enable-bilstm-head", type=int, choices=[0, 1], default=1,
-                       help="任务配置中enable_bilstm_head的值")
+
     
     args = parser.parse_args()
     
     generator = KaggleBiLSTMTestGenerator(
         keep_checkpoints=bool(args.keep_checkpoints),
         use_bilstm=args.use_bilstm,
-        enable_bilstm_head=args.enable_bilstm_head
     )
     
     if args.account == "all":

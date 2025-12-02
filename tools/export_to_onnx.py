@@ -48,8 +48,7 @@ def build_args(task_cfg: dict, global_params: dict, checkpoint: str):
     args.hidden_dim = task_cfg["hidden_dim"]
     args.dropout_prob = task_cfg["dropout_prob"]
     args.num_labels = task_cfg["num_labels"]
-    args.use_bilstm = task_cfg.get("use_bilstm", 1)
-    args.enable_bilstm_head = task_cfg.get("enable_bilstm_head", 1)
+    args.use_bilstm = task_cfg.get("use_bilstm", 0)
     args.bilstm_hidden_size = task_cfg.get("bilstm_hidden_size", 256)
     args.bilstm_num_layers = task_cfg.get("bilstm_num_layers", 2)
     args.use_crf = int(task_cfg.get("use_crf", 1))
