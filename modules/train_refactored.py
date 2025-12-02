@@ -132,6 +132,17 @@ def train(args, logger, all_tasks=[]):
     # ========== 3) 创建模型 ==========
     logger.info("Creating model")
     full_model = create_model(args, device, label_embedding_manager, logger)
+
+    # 注册当前任务的头（确保优化器/切换可用）
+    current_head_key = getattr(args, 'head_key', args.session_name)
+    # 若共享头已存在（通过 head_key），不重复注册
+    if not (full_model.head_manager.has_head(args.session_name) or full_model.head_manager.has_head(current_head_key)):
+        full_model.add_task_head(args.session_name, args.task_name, full_model.head, args)
+    # 设置当前活动头
+    try:
+        full_model.set_active_head(args.session_name, strict=False)
+    except Exception:
+        pass
     
     # ========== 3.5) 只为历史任务创建模型头（延迟创建模式） ==========
     # 注意：不再为未来任务预创建head，只在需要时创建
