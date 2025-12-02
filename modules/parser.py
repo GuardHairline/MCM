@@ -13,6 +13,8 @@ def create_train_parser() -> argparse.ArgumentParser:
                        help="Name of the new task to train")
     parser.add_argument("--session_name", type=str, required=True,
                        help="Name or ID for this training session")
+    parser.add_argument("--head_key", type=str, default=None,
+                       help="任务头唯一键，默认使用 session_name，可用于多session共享同一头")
     parser.add_argument("--train_info_json", type=str, required=True,
                        help="Path to record train info (tasks, data, metrics, etc.)")
     parser.add_argument("--pretrained_model_path", type=str, default="",

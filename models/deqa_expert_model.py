@@ -132,8 +132,9 @@ class DEQAMultimodalModel(nn.Module):
         
         # ✓ 重要：为任务创建任务头（现在会被使用！）
         use_label_embedding = getattr(args, 'use_label_embedding', False)
+        head_key = getattr(args, 'head_key', session_name)
         self.head_manager.create_and_register_head(
-            session_name, task_name, args, use_label_embedding
+            session_name, task_name, args, use_label_embedding, head_key=head_key
         )
     
     def encode_text(

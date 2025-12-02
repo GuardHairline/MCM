@@ -57,7 +57,8 @@ class Full_Model(nn.Module):
     def add_task_head(self, session_name: str, task_name: str, head, args):
         """添加任务特定的模型头（新版：使用TaskHeadManager）"""
         # 使用新的管理器
-        self.head_manager.register_head(session_name, task_name, head, args)
+        head_key = getattr(args, 'head_key', session_name)
+        self.head_manager.register_head(session_name, task_name, head, args, head_key=head_key)
         
         # 保持向后兼容
         self.task_heads[session_name] = {

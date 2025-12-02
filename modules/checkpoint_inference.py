@@ -26,6 +26,7 @@ def _build_args(task_config: Dict[str, Any], global_params: Dict[str, Any], pret
     args = argparse.Namespace()
     args.task_name = task_config["task_name"]
     args.session_name = task_config["session_name"]
+    args.head_key = task_config.get("head_key", task_config["session_name"])
     args.task_config_file = global_params.get("task_config_file", "")
     args.train_info_json = global_params.get("train_info_json", "checkpoints/train_info.json")
     args.output_model_path = task_config.get("output_model_path", global_params.get("output_model_path", "checkpoints/tmp.pt"))

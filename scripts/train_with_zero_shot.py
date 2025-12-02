@@ -151,6 +151,7 @@ def _build_args(task_config: Dict[str, Any], global_params: Dict[str, Any], pret
     # 必填/特殊字段
     args_dict["task_name"] = task_config["task_name"]
     args_dict["session_name"] = task_config["session_name"]
+    args_dict["head_key"] = task_config.get("head_key", task_config["session_name"])
     args_dict["task_config_file"] = global_params.get("task_config_file", "")
     args_dict["train_info_json"] = global_params["train_info_json"]
     args_dict["output_model_path"] = task_config.get("output_model_path", global_params.get("output_model_path"))

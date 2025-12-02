@@ -155,12 +155,15 @@ def train(args, logger, all_tasks=[]):
             
             try:
                 task_args = argparse.Namespace(**task)
+                if not hasattr(task_args, 'head_key'):
+                    task_args.head_key = session_name
                 use_label_embedding = getattr(task_args, 'use_label_embedding', False)
                 
                 # 使用TaskHeadManager创建head
                 logger.info(f"Creating head for historical task: {session_name} ({task_name})")
+                head_key = getattr(task_args, 'head_key', session_name)
                 head = full_model.head_manager.create_and_register_head(
-                    session_name, task_name, task_args, use_label_embedding
+                    session_name, task_name, task_args, use_label_embedding, head_key=head_key
                 )
                 
                 if head is None:
@@ -292,6 +295,8 @@ def train(args, logger, all_tasks=[]):
             try:
                 # 创建未来任务的参数对象
                 future_args = argparse.Namespace(**future_task)
+                if not hasattr(future_args, 'head_key'):
+                    future_args.head_key = session_name
                 future_args.task_name = task_name
                 future_args.session_name = session_name
                 
@@ -315,8 +320,9 @@ def train(args, logger, all_tasks=[]):
                         full_model.add_task(task_name, session_name, future_args.num_labels, future_args)
                     else:
                         # 普通模型只需创建head
+                        head_key = getattr(future_args, 'head_key', session_name)
                         temp_head = full_model.head_manager.create_and_register_head(
-                            session_name, task_name, future_args, use_label_embedding
+                            session_name, task_name, future_args, use_label_embedding, head_key=head_key
                         )
                         if temp_head is None:
                             logger.warning(f"  ✗ Failed to create temporary head for {session_name}")
