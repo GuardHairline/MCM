@@ -107,7 +107,7 @@ class MATEDataset(Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        text_with_T, image_path, aspects = self.samples[idx]
+        text, image_path, aspects = self.samples[idx]
 
         # 初始化字符级标签（全0）
         char_label = [0] * len(text)
