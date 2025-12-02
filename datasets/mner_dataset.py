@@ -61,23 +61,34 @@ class MNERDataset(Dataset):
                 image_name += ".jpg"
             image_path = os.path.join(self.image_dir, image_name)
 
-            # 还原纯文本
-            clean_text = text_with_T.replace("$T$", entity_str)
 
-            entity_type = int(entity_type_str)  # -1..2
+            # 先对含 $T$ 的模板文本进行标准化清洗
+            # .split() 会自动去除 \t, \n 和多余空格，" ".join 将其重建为标准空格分隔的字符串
+            clean_template = " ".join(text_with_T.split())
+            
+            parts = clean_template.split("$T$")
+            
+            if len(parts) < 2:
+                # 如果数据行里居然没有 $T$，打印警告并跳过
+                print(f"[Warning] No $T$ found in line: {text_with_T}")
+                continue
+                
+            prefix = parts[0]
 
-            prefix = text_with_T.split("$T$")[0]
             start_idx = len(prefix)
             end_idx = start_idx + len(entity_str) - 1
+
+            # 还原标准化文本
+            raw_text_clean = clean_template.replace("$T$", entity_str)
             
-            key = (clean_text, image_path)
+            key = (raw_text_clean, image_path)
             
             if key not in grouped_data:
                 grouped_data[key] = []
             
             grouped_data[key].append({
                 "entity": entity_str,
-                "type": entity_type,
+                "type": int(entity_type_str),# -1..2
                 "start": start_idx,
                 "end": end_idx
             })
