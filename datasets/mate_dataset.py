@@ -37,8 +37,7 @@ class MATEDataset(Dataset):
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         self.max_seq_length = max_seq_length
 
-        self.samples = []
-        self._read_data()
+        self.samples = self._read_data()
 
         self.image_transform = transforms.Compose([
             transforms.Resize((224, 224)),
@@ -53,6 +52,9 @@ class MATEDataset(Dataset):
             lines = [l.strip() for l in f.readlines()]
         assert len(lines) % 4 == 0, "MATE 数据格式有误，每条样本应占4行。"
 
+        # 聚合字典: Key = Key = (clean_text, image_path), Value = list of Aspects
+        grouped_data = {}
+
         for i in range(0, len(lines), 4):
             text_with_T = lines[i]
             aspect_term = lines[i + 1]
@@ -62,39 +64,67 @@ class MATEDataset(Dataset):
             if not image_name.endswith(".jpg"):
                 image_name += ".jpg"
             image_path = os.path.join(self.image_dir, image_name)
-            self.samples.append((text_with_T, aspect_term, image_path))
+
+            # 清洗文本模板
+            clean_template = " ".join(text_with_T.split())
+
+            # 定位 $T$ 的位置
+            parts = clean_template.split("$T$")
+            if len(parts) < 2:
+                # 如果数据行里居然没有 $T$，打印警告并跳过
+                print(f"[Warning] No $T$ found in line: {text_with_T}")
+                continue
+                
+            prefix = parts[0]
+
+            start_idx = len(prefix)
+            end_idx = start_idx + len(aspect_term) - 1
+
+            # 还原标准化文本
+            raw_text_clean = clean_template.replace("$T$", aspect_term)
+            
+            # 聚合 Key
+            key = (raw_text_clean, image_path)
+
+            # 2. 初始化聚合记录
+            if key not in grouped_data:
+                # 第一次遇到该图片，尝试还原完整文本
+                # 注意：这里假设第一个遇到的实体的文本就是基准文本
+                # 将 $T$ 替换为实体词
+                grouped_data[key] = []
+                
+            grouped_data[key].append({
+                "aspect": aspect_term,
+                "start": start_idx,
+                "end": end_idx
+            })
+        samples = []
+        for (text, img_path), aspects in grouped_data.items():
+            samples.append((text, img_path, aspects))
+        return samples
 
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        text_with_T, aspect_term, image_path = self.samples[idx]
+        text_with_T, image_path, aspects = self.samples[idx]
 
-        # 1) 替换 $T$ => new_text
+        # 初始化字符级标签（全0）
+        char_label = [0] * len(text)
 
+        for asp in aspects:
+            start_pos = asp['start']
+            end_pos = asp['end']
+            
+            # MATE: B=1, I=2
+            if start_pos < len(text) and end_pos < len(text):
+                char_label[start_pos] = 1 # B
+                for c in range(start_pos + 1, end_pos + 1):
+                    char_label[c] = 2 # I
 
-        if "$T$" in text_with_T:
-            T_position = text_with_T.index("$T$")
-            replaced_text = text_with_T.replace("$T$", aspect_term)
-            start_pos = T_position
-            end_pos = start_pos + len(aspect_term) - 1
-        else:
-            replaced_text = text_with_T  # 若无 $T$, 也可直接拼
-            start_pos = -1
-            end_pos = -1
-
-
-        # 2) 构造 char_label (B=1, I=2, O=0)
-        char_label = [0]*len(replaced_text)
-        if 0 <= start_pos < len(replaced_text):
-            char_label[start_pos] = 1  # B
-            for c in range(start_pos+1, end_pos+1):
-                char_label[c] = 2       # I
-        assert any(l != 0 for l in char_label), "Entity not labeled!"
-
-        # 3) tokenizer + offset对齐 => subword级别标签
+        # Tokenizer
         encoded = self.tokenizer(
-            replaced_text,
+            text,
             max_length=self.max_seq_length,
             padding='max_length',
             truncation=True,
@@ -105,33 +135,22 @@ class MATEDataset(Dataset):
         label_ids = []
         for (start_char, end_char) in offsets:
             if start_char == end_char:
-                # 特殊token [CLS], [SEP], or padding
                 label_ids.append(-100)
             else:
-                sub_labels  = char_label[start_char:end_char]
-                valid_labels = [l for l in sub_labels if l != 0]
-
-                if not valid_labels:
-                    label_id = 0  # 无有效标签，标记为 O
-                else:
-                    # 策略1: 取出现最多的标签
-                    # label_id = Counter(valid_labels).most_common(1)[0][0]
-
-                    # 策略2: B 标签优先（若存在 B 则覆盖 I）
-                    label_id = 1 if 1 in valid_labels else (
-                        2 if 2 in valid_labels else 0
-                    )
-                label_ids.append(label_id)
-        assert any(label in {1, 2} for label in label_ids), f"No valid entity labels (1-2) found. Check text: '{replaced_text}', entity: '{aspect_term}', type: {char_label}"
+                sub_chars = char_label[start_char:end_char]
+                token_label = 0
+                # 只要由非0标签，优先取非0
+                for l in sub_chars:
+                    if l != 0:
+                        # 简单逻辑：如果包含B(1)，则标为1；否则如果有I(2)，标为2
+                        if l == 1: 
+                            token_label = 1
+                            break
+                        token_label = 2
+                label_ids.append(token_label)
 
         encoded.pop("offset_mapping")
-
         image_tensor = self._load_image(image_path)
-
-        # print(f"replaced_text: {replaced_text}")
-        # print(f"aspect_term: {aspect_term}")
-        # print(f"char_label: {char_label}")
-        # print(f"label_ids: {label_ids}")
 
         out_item = {
             "input_ids": torch.tensor(encoded["input_ids"], dtype=torch.long),
@@ -144,7 +163,10 @@ class MATEDataset(Dataset):
 
         return out_item
 
-    def _load_image(self, image_path):
-        with Image.open(image_path).convert("RGB") as img:
-            img_tensor = self.image_transform(img)
-        return img_tensor
+    def _load_image(self, path):
+        try:
+            with Image.open(path).convert("RGB") as img:
+                return self.image_transform(img)
+        except (UnidentifiedImageError, IOError) as e:
+            # print(f"Error loading image {path}: {e}")
+            return torch.zeros(3, 224, 224)

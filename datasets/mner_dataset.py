@@ -63,7 +63,6 @@ class MNERDataset(Dataset):
 
 
             # 先对含 $T$ 的模板文本进行标准化清洗
-            # .split() 会自动去除 \t, \n 和多余空格，" ".join 将其重建为标准空格分隔的字符串
             clean_template = " ".join(text_with_T.split())
             
             parts = clean_template.split("$T$")
