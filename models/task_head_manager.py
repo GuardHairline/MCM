@@ -14,6 +14,8 @@ import torch.nn as nn
 from typing import Dict, Optional, Any, List
 from dataclasses import dataclass
 import logging
+import argparse
+from torch.serialization import add_safe_globals
 
 logger = logging.getLogger(__name__)
 
@@ -330,6 +332,21 @@ class TaskHeadManager:
             logger.error(f"Failed to save task heads: {e}")
             return False
     
+    def _torch_load_with_weights(self, load_path, map_location):
+        """
+        Torch >=2.6 默认 weights_only=True，会阻止反序列化 Namespace。
+        这里显式设置 weights_only=False，并允许 argparse.Namespace 以保证兼容老文件。
+        """
+        try:
+            add_safe_globals([argparse.Namespace])
+        except Exception:
+            pass
+        try:
+            return torch.load(load_path, map_location=map_location, weights_only=False)
+        except TypeError:
+            # 老版本不支持 weights_only 参数
+            return torch.load(load_path, map_location=map_location)
+
     def load_heads(self, load_path: str, strict: bool = False) -> int:
         """
         加载任务头
@@ -350,7 +367,7 @@ class TaskHeadManager:
                 return 0
         
         try:
-            raw_state = torch.load(load_path, map_location=self.device)
+            raw_state = self._torch_load_with_weights(load_path, map_location=self.device)
             if isinstance(raw_state, dict) and 'heads_state' in raw_state:
                 heads_state = raw_state.get('heads_state', {})
                 self._session_to_headkey.update(raw_state.get('session_to_headkey', {}))

@@ -123,8 +123,15 @@ class Full_Model(nn.Module):
         for session_name in self.head_manager.get_all_sessions():
             head = self.head_manager.get_head(session_name)
             task_name = self.head_manager.get_task_name(session_name)
-            head_info = self.head_manager._task_heads[session_name]
-            
+            # 修复 KeyError: 先获取 head_key，再访问 _task_heads
+            head_key = self.head_manager._session_to_headkey.get(session_name)
+            if head_key and head_key in self.head_manager._task_heads:
+                head_info = self.head_manager._task_heads[head_key]
+                args = head_info.args
+            else:
+                if logger:
+                    logger.warning(f"Could not find head info for session {session_name} (key: {head_key})")
+                args = None
             self.task_heads[session_name] = {
                 'head': head,
                 'task_name': task_name,
