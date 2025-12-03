@@ -833,10 +833,10 @@ class TaskConfigGenerator:
         
         # 任务特定参数
         task_specific_params = {
-            "masc": {"num_labels": 3, "epochs": 20, "lr": 5e-6, "step_size": 15, "gamma": 0.5},
-            "mate": {"num_labels": 3, "epochs": 20, "lr": 5e-5, "step_size": 10, "gamma": 0.5},
-            "mner": {"num_labels": 9, "epochs": 20, "lr": 5e-5, "step_size": 10, "gamma": 0.5},
-            "mabsa": {"num_labels": 7, "epochs": 20, "lr": 5e-5, "step_size": 10, "gamma": 0.5}
+            "masc": {"num_labels": 3, "epochs": 20, "lr": 5e-6},
+            "mate": {"num_labels": 3, "epochs": 20, "lr": 5e-5},
+            "mner": {"num_labels": 9, "epochs": 20, "lr": 5e-5},
+            "mabsa": {"num_labels": 7, "epochs": 20, "lr": 5e-5}
         }
         
         # 如果是200数据集，所有任务的epoch都改为1
@@ -874,7 +874,7 @@ class TaskConfigGenerator:
             "epochs": task_params.get("epochs", 20),
             "lr": task_params.get("lr", 5e-5),
             "batch_size": task_params.get("batch_size", 8),
-            "step_size": task_params.get("step_size", 10),
+            "step_size": task_params.get("step_size", 0),
             "gamma": task_params.get("gamma", 0.5),
             "weight_decay": task_params.get("weight_decay", 1e-5),
             "dropout_prob": task_params.get("dropout_prob", 0.3),
