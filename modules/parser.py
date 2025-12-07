@@ -14,7 +14,7 @@ def create_train_parser() -> argparse.ArgumentParser:
     parser.add_argument("--session_name", type=str, required=True,
                        help="Name or ID for this training session")
     parser.add_argument("--head_key", type=str, default=None,
-                       help="任务头唯一键，默认使用 session_name，可用于多session共享同一头")
+                       help="任务头唯一键，如果确实会默认使用 session_name，可用于多session共享同一头")
     parser.add_argument("--train_info_json", type=str, required=True,
                        help="Path to record train info (tasks, data, metrics, etc.)")
     parser.add_argument("--pretrained_model_path", type=str, default="",
@@ -57,10 +57,10 @@ def create_train_parser() -> argparse.ArgumentParser:
                        help="Number of labels (auto-detect if -1)")
     
     # BiLSTM-CRF参数
-    parser.add_argument("--use_bilstm", type=int, default=0,
-                       help="Use BiLSTM layer in task heads (1=True, 0=False, default=1)")
     parser.add_argument("--use_crf", type=int, default=1,
                        help="Use CRF layer for sequence labeling (1=True, 0=False, default=1)")
+    parser.add_argument("--use_bilstm", type=int, default=0,
+                       help="Use BiLSTM layer in task heads (1=True, 0=False, default=1)")
     parser.add_argument("--bilstm_hidden_size", type=int, default=256,
                        help="Hidden size of BiLSTM layer (default=256)")
     parser.add_argument("--bilstm_num_layers", type=int, default=2,
@@ -71,7 +71,7 @@ def create_train_parser() -> argparse.ArgumentParser:
                        help="Number of epochs")
     parser.add_argument("--batch_size", type=int, default=8,
                        help="Batch size")
-    parser.add_argument("--lr", type=float, default=5e-5,
+    parser.add_argument("--lr", type=float, default=1e-5,
                        help="Learning rate for text encoder")
     parser.add_argument("--lstm_lr", type=float, default=1e-4,
                        help="Learning rate for BiLSTM layer (if use_bilstm=True)")
@@ -88,7 +88,7 @@ def create_train_parser() -> argparse.ArgumentParser:
                        help="Type of LR scheduler to use")
     parser.add_argument("--warmup_ratio", type=float, default=0.1,
                        help="Warmup ratio for linear scheduler (0 to disable)")
-    parser.add_argument("--patience", type=int, default=5,
+    parser.add_argument("--patience", type=int, default=4,
                        help="Patience for early stopping")
     parser.add_argument("--num_workers", type=int, default=4,
                        help="Number of workers for data loading")
@@ -234,13 +234,13 @@ def create_train_parser() -> argparse.ArgumentParser:
                        help="Whether to use mymethod")
     
     # ========== 模型头部参数 ==========
-    parser.add_argument("--triaffine", type=int, default=1,
+    parser.add_argument("--triaffine", type=int, default=0,
                        help="Whether to use triaffine")
     parser.add_argument("--span_hidden", type=int, default=256,
                        help="Hidden dimension for span head")
     
     # ========== Span Loss参数 ==========
-    parser.add_argument("--use_span_loss", type=int, default=1,
+    parser.add_argument("--use_span_loss", type=int, default=0,
                        help="Whether to use span loss for sequence tasks (0=disable, 1=enable)")
     parser.add_argument("--boundary_weight", type=float, default=0.2,
                        help="Weight for boundary loss in span loss")
