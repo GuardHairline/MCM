@@ -688,6 +688,10 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, device, a
                 is_sequence_task = task_name in ["mate", "mner", "mabsa"]
                 metric_name = "Chunk F1 (Span-level)" if is_sequence_task else "Micro F1"
                 logger.info(f"✓ New best {metric_name}: {best_val_metric:.4f} at epoch {best_epoch}")
+            if args.output_model_path:
+                torch.save(model.state_dict(), args.output_model_path)
+                if logger:
+                    logger.info(f"✓ Saved best model to {args.output_model_path}")
         else:
             no_improve_count += 1
             if logger:

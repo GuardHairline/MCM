@@ -88,7 +88,7 @@ def create_train_parser() -> argparse.ArgumentParser:
                        help="Type of LR scheduler to use")
     parser.add_argument("--warmup_ratio", type=float, default=0.1,
                        help="Warmup ratio for linear scheduler (0 to disable)")
-    parser.add_argument("--patience", type=int, default=4,
+    parser.add_argument("--patience", type=int, default=5,
                        help="Patience for early stopping")
     parser.add_argument("--num_workers", type=int, default=4,
                        help="Number of workers for data loading")
