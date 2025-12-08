@@ -159,7 +159,7 @@ def _build_args(task_config: Dict[str, Any], global_params: Dict[str, Any], pret
     args_dict["data_dir"] = global_params.get("data_dir", args_dict.get("data_dir"))
     args_dict["dataset_name"] = global_params.get("dataset_name", args_dict.get("dataset_name"))
     args_dict["num_workers"] = global_params.get("num_workers", args_dict.get("num_workers", 4))
-
+    args_dict["image_dir"] = global_params.get("image_dir", args_dict.get("image_dir", "data/img"))
     # 兼容目录/描述字段
     if "gem_mem_dir" in global_params:
         args_dict["gem_mem_dir"] = global_params["gem_mem_dir"]
@@ -188,7 +188,6 @@ def run_single_task(task_config: Dict[str, Any], global_params: Dict[str, Any],
     print(f"  Epochs: {args.epochs}")
     print(f"  Batch size: {args.batch_size}")
     print(f"  Learning rate: {args.lr}")
-    print(f"  Strategy: {task_config.get('strategy', 'none')}")
     if args.use_label_embedding:
         print(f"  Label embedding: enabled")
     
