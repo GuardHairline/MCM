@@ -275,6 +275,14 @@ def train(args, logger, all_tasks=[]):
         freeze_topk_experts(full_model, freeze_topk)
     # ========== 10) 评估和更新训练信息 ==========
     logger.info("Evaluating model")
+    
+    if os.path.exists(args.output_model_path):
+        logger.info(f"🔄 Reloading best model from {args.output_model_path} for evaluation...")
+        # 注意：这里需要处理可能的 load_state_dict 兼容性问题，通常 strict=False 比较安全
+        full_model.load_state_dict(torch.load(args.output_model_path, map_location=device), strict=False)
+    else:
+        logger.warning("⚠️ Best model checkpoint not found! Using last epoch model instead.")
+    
     # 评估当前任务（使用DEV集作为主要指标，TEST集仅用于记录）
     current_dev_metrics = train_result["final_dev_metrics"]
     current_test_metrics = train_result["final_test_metrics"]
