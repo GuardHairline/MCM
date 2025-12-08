@@ -669,8 +669,46 @@ def create_optimizer(model, args):
     - CRF: args.crf_lr (默认1e-3)
     """
     if args.moe_adapters:
-        optim_params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.AdamW(optim_params, lr=args.lr, weight_decay=args.weight_decay)
+        # MoE/Adapter 需要比 Backbone 更大的学习率
+        # 通常 Backbone 1e-5, Adapter 1e-3
+        adapter_lr = getattr(args, 'adapter_lr', 1e-3)
+        
+        param_groups = []
+        
+        # 1. 区分 Adapter 参数和其他参数
+        adapter_params = []
+        other_params = []
+        
+        for name, param in model.named_parameters():
+            if not param.requires_grad:
+                continue
+                
+            # 识别是否为 MoE 或 Adapter 参数
+            # 你的代码中 MoE 模块通常包含 'adapters', 'experts', 'router'
+            if any(k in name for k in ['adapters', 'experts', 'router', 'w_noise']):
+                adapter_params.append(param)
+            else:
+                other_params.append(param)
+        
+        # 2. 设置不同的参数组
+        if adapter_params:
+            param_groups.append({
+                'params': adapter_params,
+                'lr': adapter_lr, 
+                'weight_decay': args.weight_decay
+            })
+            print(f"✓ Optimizer: Added {len(adapter_params)} adapter params (lr={adapter_lr})")
+            
+        if other_params:
+            # 如果有其他参数（如 Head），使用默认 lr 或 head lr
+            param_groups.append({
+                'params': other_params,
+                'lr': args.lr, # 或者使用特定的 head_lr
+                'weight_decay': args.weight_decay
+            })
+            print(f"✓ Optimizer: Added {len(other_params)} other params (lr={args.lr})")
+            
+        optimizer = torch.optim.AdamW(param_groups)
     else:
         # 检查是否使用BiLSTM（需要分层学习率）
         use_bilstm = getattr(args, 'use_bilstm', 0)

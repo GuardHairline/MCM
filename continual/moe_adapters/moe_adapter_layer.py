@@ -25,22 +25,29 @@ class MoEAdapterLayer(nn.Module):
                           rank=lora_rank) for _ in range(num_experts)]
         )
         
-        # Router网络（用于计算gate logits）
-        self.router = nn.Linear(hidden_size, num_experts, bias=False)
+        # 使用 ModuleList 实现增量 Router (Task-Specific Routers)
+        # 每个 Router 负责计算对应 Expert 的 logit (scalar)
+        # 初始只有一个 Expert，所以有一个 Router (H -> 1)
+        self.routers = nn.ModuleList(
+            [nn.Linear(hidden_size, 1, bias=False) for _ in range(num_experts)]
+        )
         
-        # ✓ 新增：Noise网络（用于Noisy Top-K Gating）
-        self.w_noise = nn.Linear(hidden_size, num_experts, bias=False)
-        nn.init.zeros_(self.w_noise.weight)  # 初始化为0，避免初期扰动过大
+        # 噪声门控参数也需要独立
+        self.noise_layers = nn.ModuleList(
+            [nn.Linear(hidden_size, 1, bias=False) for _ in range(num_experts)]
+        )
         
+        # 初始化
+        for router in self.routers:
+            nn.init.normal_(router.weight, std=0.02)
+        for noise in self.noise_layers:
+            nn.init.zeros_(noise.weight)
         # 激活计数器（用于freeze_topk_experts）
         self.activation_counter = Counter()
         
         # Load balancing相关
         self.load_loss = None  # 存储当前batch的load loss
 
-        # 记录当前正在训练的专家索引（通常是最后一个）
-        # 如果是 -1，表示所有专家都已冻结或处于推理模式
-        self.active_expert_index = num_experts - 1
     def _cv_squared(self, x):
         """
         Coefficient of Variation (变异系数) 的平方
@@ -72,16 +79,19 @@ class MoEAdapterLayer(nn.Module):
             gates: (B, E) softmax后的gate权重，top-k以外的为0
             load: (E,) 每个专家处理的样本数（用于load balancing）
         """
-        # 1. 计算clean logits
-        clean_logits = self.router(x)  # (B, E)
+        # 1. 计算每个 Expert 的 Logit
+        # x: (B, H)
+        # logits_list: [ (B, 1), (B, 1), ... ]
+        logits_list = [router(x) for router in self.routers]
+        clean_logits = torch.cat(logits_list, dim=1)  # (B, E)
         
         # 2. 训练时添加噪声
         if train:
             # 计算噪声标准差
-            raw_noise_stddev = self.w_noise(x)  # (B, E)
-            noise_stddev = F.softplus(raw_noise_stddev) + self.noise_epsilon
+            noise_std_list = [F.softplus(n_layer(x)) + self.noise_epsilon for n_layer in self.noise_layers]            noise_stddev = F.softplus(raw_noise_stddev) + self.noise_epsilon
+            noise_std = torch.cat(noise_std_list, dim=1) # (B, E)
             # 添加高斯噪声
-            noisy_logits = clean_logits + (torch.randn_like(clean_logits) * noise_stddev)
+            noisy_logits = clean_logits + (torch.randn_like(clean_logits) * noise_std)
             logits = noisy_logits
         else:
             logits = clean_logits
@@ -108,43 +118,55 @@ class MoEAdapterLayer(nn.Module):
     
     @torch.no_grad()
     def add_expert(self):
-        """在新任务开始时调用，冻结旧专家并添加一个新专家"""
-        # 1. 冻结所有旧专家
+        """
+        [Activate-Freeze Strategy]
+        在新任务开始时调用：
+        1. 冻结所有旧专家 (Experts)
+        2. 冻结所有旧路由 (Routers)
+        3. 添加一个新专家和对应的路由，保持可训练
+        """        
+        
+        device = next(self.parameters()).device
+        
+        # 1. 冻结旧专家
         for p in self.experts.parameters():
             p.requires_grad = False
+            
+        # 2. [关键修复] 冻结旧 Router
+        for p in self.routers.parameters():
+            p.requires_grad = False
+        for p in self.noise_layers.parameters():
+            p.requires_grad = False
         
-        # 2. 获取设备信息（从第一个专家获取）
-        device = next(self.experts[0].parameters()).device
-        
-        # 3. 添加新专家并移到正确设备
+        # 3. 添加新专家
+        # 获取 LoRA 配置 (兼容性处理)
+        if hasattr(self.experts[0], 'down'):
+            in_features = self.experts[0].down.in_features
+            rank = self.experts[0].down.out_features # LoRA down projection out is rank
+        else: # LoraExpert implementation
+            in_features = self.experts[0].A.in_features
+            rank = self.experts[0].r
+            
         new_expert = build_expert(
-            self.experts[0].down.in_features if hasattr(self.experts[0], 'down')
-            else self.experts[0].A.in_features,  # 兼容 LoRAExpert
+            in_features,
             expert_type="lora",
-            rank=getattr(self.experts[0], 'rank', 8)
+            rank=rank
         ).to(device)
         self.experts.append(new_expert)
         
-        # 4. 扩展Router输出维度
-        old_out = self.router.out_features
-        old_router_weight = self.router.weight.data.clone()
-        old_noise_weight = self.w_noise.weight.data.clone()
+        # 4. 添加新 Router 和 Noise Layer
+        new_router = nn.Linear(self.hidden_size, 1, bias=False).to(device)
+        new_noise = nn.Linear(self.hidden_size, 1, bias=False).to(device)
         
-        # 重新创建router和noise网络
-        self.router = nn.Linear(self.router.in_features, old_out + 1, bias=False).to(device)
-        self.w_noise = nn.Linear(self.w_noise.in_features, old_out + 1, bias=False).to(device)
+        # 初始化
+        nn.init.normal_(new_router.weight, std=0.02)
+        nn.init.zeros_(new_noise.weight)
         
-        # 复制旧权重
-        self.router.weight.data[:old_out] = old_router_weight
-        self.w_noise.weight.data[:old_out] = old_noise_weight
+        self.routers.append(new_router)
+        self.noise_layers.append(new_noise)
         
-        # 初始化新专家的权重（小随机值）
-        nn.init.normal_(self.router.weight.data[old_out:], std=1e-4)
-        nn.init.zeros_(self.w_noise.weight.data[old_out:])
-        
-        # 更新num_experts
-        self.num_experts = old_out + 1
-        self.active_expert_index = self.num_experts - 1
+        # 更新数量
+        self.num_experts += 1
 
     def forward(self, x):
         """
@@ -185,28 +207,11 @@ class MoEAdapterLayer(nn.Module):
                 if count > 0:
                     self.activation_counter[expert_idx] += int(count)
         
-        # 4. 专家计算（使用SparseDispatcher或密集计算）
-        if self.use_sparse and self.training:
-            # ✓ 稀疏计算：只让gate>0的专家处理对应样本
-            dispatcher = SparseDispatcher(self.num_experts, gates)
-            expert_inputs = dispatcher.dispatch(x)  # list of (expert_batch_size, L, H)
-            
-            # 处理每个专家（跳过空输入）
-            expert_outputs = []
-            for i, expert_input in enumerate(expert_inputs):
-                if expert_input.size(0) > 0:  # 如果有样本分配给该专家
-                    expert_outputs.append(self.experts[i](expert_input))
-                else:
-                    # 创建空tensor保持列表长度一致
-                    expert_outputs.append(torch.empty(0, L, H, device=x.device, dtype=x.dtype))
-            
-            # 合并专家输出
-            weighted = dispatcher.combine(expert_outputs, multiply_by_gates=True)  # (B, L, H)
-        else:
-            # ✓ 密集计算：所有专家处理所有样本（推理时或use_sparse=False）
-            experts_out = torch.stack([expert(x) for expert in self.experts], dim=1)  # (B, E, L, H)
-            gates_expanded = gates.view(B, -1, 1, 1)  # (B, E, 1, 1)
-            weighted = (gates_expanded * experts_out).sum(dim=1)  # (B, L, H)
+        
+        # ✓ 密集计算：所有专家处理所有样本（推理时或use_sparse=False）
+        experts_out = torch.stack([expert(x) for expert in self.experts], dim=1)  # (B, E, L, H)
+        gates_expanded = gates.view(B, -1, 1, 1)  # (B, E, 1, 1)
+        weighted = (gates_expanded * experts_out).sum(dim=1)  # (B, L, H)
         
         # 5. 残差连接
         output = x + weighted
