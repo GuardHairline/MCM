@@ -38,6 +38,9 @@ class MoEAdapterLayer(nn.Module):
         # Load balancing相关
         self.load_loss = None  # 存储当前batch的load loss
 
+        # 记录当前正在训练的专家索引（通常是最后一个）
+        # 如果是 -1，表示所有专家都已冻结或处于推理模式
+        self.active_expert_index = num_experts - 1
     def _cv_squared(self, x):
         """
         Coefficient of Variation (变异系数) 的平方
@@ -82,7 +85,7 @@ class MoEAdapterLayer(nn.Module):
             logits = noisy_logits
         else:
             logits = clean_logits
-        
+        # 训练时的路由约束
         # 3. Top-K选择
         if self.top_k < self.num_experts:
             # 只保留top-k个专家
@@ -119,9 +122,7 @@ class MoEAdapterLayer(nn.Module):
             else self.experts[0].A.in_features,  # 兼容 LoRAExpert
             expert_type="lora",
             rank=getattr(self.experts[0], 'rank', 8)
-        )
-        # ✓ 关键修复：确保新专家在正确的设备上
-        new_expert = new_expert.to(device)
+        ).to(device)
         self.experts.append(new_expert)
         
         # 4. 扩展Router输出维度
@@ -143,6 +144,7 @@ class MoEAdapterLayer(nn.Module):
         
         # 更新num_experts
         self.num_experts = old_out + 1
+        self.active_expert_index = self.num_experts - 1
 
     def forward(self, x):
         """
