@@ -58,15 +58,15 @@ class LwFDistiller:
                 # 调用 model 的 forward，它会自动使用 set_active_head 设置的 head
                 # 注意：inputs 解包
                 if hasattr(self.old_model, 'base_model'): # 兼容您的架构
-                     # 这里假设 forward 会调用 head
-                     # 如果您的 model forward 逻辑依赖当前 active head
-                     old_logits = self.old_model(
-                         inputs['input_ids'], 
-                         inputs['attention_mask'], 
-                         inputs.get('token_type_ids'), 
-                         inputs['image_tensor']
-                     )
-                     # Handle tuple return (loss, logits) or just logits
+                    # 这里假设 forward 会调用 head
+                    # 如果您的 model forward 逻辑依赖当前 active head
+                    old_logits = self.old_model(
+                        inputs['input_ids'], 
+                        inputs['attention_mask'], 
+                        inputs.get('token_type_ids'), 
+                        inputs['image_tensor']
+                    )
+                    # Handle tuple return (loss, logits) or just logits
                     old_logits = old_out[1] if isinstance(old_out, tuple) else old_out
                 else:
                     logger.warning("LwF: old_model structure unrecognized (no base_model). Skipping.")
@@ -77,10 +77,10 @@ class LwFDistiller:
             if hasattr(current_model, 'set_active_head'):
                 current_model.set_active_head(task_name)
             new_logits_on_old_task = current_model(
-                 inputs['input_ids'], 
-                 inputs['attention_mask'], 
-                 inputs.get('token_type_ids'), 
-                 inputs['image_tensor']
+                inputs['input_ids'], 
+                inputs['attention_mask'], 
+                inputs.get('token_type_ids'), 
+                inputs['image_tensor']
             )
             new_logits_on_old_task = new_out[1] if isinstance(new_out, tuple) else new_out
 
