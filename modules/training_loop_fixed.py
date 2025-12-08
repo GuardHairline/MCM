@@ -127,7 +127,14 @@ def train_epoch(model, train_loader, optimizer, device, args,
         labels = batch['labels'].to(device)
         
         optimizer.zero_grad()
-        
+        # 在这里定义 batch_inputs，确保对所有分支可见
+
+        batch_inputs = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "token_type_ids": token_type_ids,
+            "image_tensor": image_tensor
+        }
         # ============ 前向传播 ============
         logits = None
         classification_loss = None
