@@ -379,7 +379,16 @@ class MATEDatasetDEQA(Dataset):
                 label_ids.append(token_label)
 
         encoded.pop("offset_mapping")
+        # [修复] 手动将 list 转换为 Tensor
+        input_ids = torch.tensor(encoded["input_ids"], dtype=torch.long)
+        attention_mask = torch.tensor(encoded["attention_mask"], dtype=torch.long)
         
+        # [修复] 处理 token_type_ids
+        token_type_ids_list = encoded.get('token_type_ids')
+        if token_type_ids_list is not None:
+            token_type_ids = torch.tensor(token_type_ids_list, dtype=torch.long)
+        else:
+            token_type_ids = torch.zeros_like(input_ids)
         #  加载图像
         image_tensor = self._load_image(image_path)
         
@@ -573,7 +582,15 @@ class MABSADatasetDEQA(Dataset):
                 label_ids.append(token_label)
 
         encoded.pop("offset_mapping")
+        # [修复] 显式转换为 Tensor
+        input_ids = torch.tensor(encoded["input_ids"], dtype=torch.long)
+        attention_mask = torch.tensor(encoded["attention_mask"], dtype=torch.long)
         
+        token_type_ids_list = encoded.get('token_type_ids')
+        if token_type_ids_list is not None:
+            token_type_ids = torch.tensor(token_type_ids_list, dtype=torch.long)
+        else:
+            token_type_ids = torch.zeros_like(input_ids)
         # 加载图像
         image_tensor = self._load_image(image_path)
         
@@ -779,7 +796,15 @@ class MNERDatasetDEQA(Dataset):
                 label_ids.append(token_label)
         assert any(label in {1, 2, 3, 4, 5, 6, 7, 8} for label in label_ids), f"No valid entity labels (1-8) found. Check text: '{replaced_text}', entity: '{entity_str}', type: {entity_type}"
         encoded.pop("offset_mapping")
+        # [修复] 显式转换为 Tensor
+        input_ids = torch.tensor(encoded["input_ids"], dtype=torch.long)
+        attention_mask = torch.tensor(encoded["attention_mask"], dtype=torch.long)
         
+        token_type_ids_list = encoded.get('token_type_ids')
+        if token_type_ids_list is not None:
+            token_type_ids = torch.tensor(token_type_ids_list, dtype=torch.long)
+        else:
+            token_type_ids = torch.zeros_like(input_ids)
         # 5. 加载图像
         image_tensor = self._load_image(image_path)
         
