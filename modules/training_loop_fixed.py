@@ -548,15 +548,28 @@ def validate_epoch(model, val_loader, device, args, logger=None):
                     # 句级/其他任务：保持原逻辑
                     out = model(input_ids, attention_mask, token_type_ids, image_tensor)
                     if isinstance(out, tuple):
+                        # 处理 (loss, logits) 或 (logits, ...)
                         if len(out) >= 2 and isinstance(out[0], torch.Tensor) and out[0].dim() == 0:
                             loss = out[0]
                             logits = out[1]
                         else:
-                            logits = out[0] if isinstance(out, tuple) else out
-                            loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
-                            loss = loss_fct(logits, labels)
+                            logits = out[0]
+                            loss = None
+                    elif isinstance(out, dict):
+                        # [修复] 处理字典返回 (e.g. {'logits': ..., 'hidden_states': ...})
+                        logits = out.get('logits', None)
+                        loss = out.get('loss', None)
+                        if logits is None: # 只有dict但没有logits键，假设整个dict不是output
+                             # 尝试寻找常见key
+                             for k in ['pred', 'prediction', 'output']:
+                                 if k in out:
+                                     logits = out[k]
+                                     break
                     else:
                         logits = out
+                        loss = None
+                    
+                    if loss is None and logits is not None:
                         loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
                         loss = loss_fct(logits, labels)
                 
