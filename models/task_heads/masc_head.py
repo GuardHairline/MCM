@@ -23,7 +23,7 @@ class MASCHead(nn.Module):
         # 任务特定的输出层：仅依赖于任务的标签数
         self.classifier = nn.Linear(input_dim, num_labels)
 
-    def forward(self, cls_features):  # (b, input_dim)
+    def forward(self, cls_features, labels=None, mask=None, **kwargs):  # (b, input_dim)
         shared_out = self.shared_layer(cls_features)
         logits = self.classifier(shared_out)
         return logits
