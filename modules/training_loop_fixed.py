@@ -6,6 +6,7 @@
 2. 梯度裁剪位置错误
 3. 类别权重问题已通过label_config解决
 4. 梯度处理顺序
+5. LwF 调用参数修复
 """
 import torch
 import torch.nn as nn
@@ -379,14 +380,10 @@ def train_epoch(model, train_loader, optimizer, device, args,
                 loss = loss + mymethod_loss
         
         # LwF 蒸馏损失
-        if lwf is not None and logits is not None:
-            inputs = {
-                "input_ids": input_ids,
-                "attention_mask": attention_mask,
-                "token_type_ids": token_type_ids,
-                "image_tensor": image_tensor
-            }
-            lwf_loss = lwf.distillation_loss(logits, inputs)
+        if lwf is not None:
+            # 传入 model 和 batch_inputs，而不是 logits
+            # 确保 LwF 内部自己处理 head 切换和前向传播
+            lwf_loss = lwf.distillation_loss(model, batch_inputs)
             if isinstance(lwf_loss, torch.Tensor) and lwf_loss.requires_grad:
                 loss = loss + lwf_loss
         
@@ -467,7 +464,10 @@ def train_epoch(model, train_loader, optimizer, device, args,
             ae_loss.backward()
             ddas_optimizer.step()
             ddas_feats.clear()
-        
+            
+        if hasattr(model, 'set_active_head'):
+            model.set_active_head(args.session_name, strict=False)
+
         batch_size = input_ids.size(0)
         total_loss += loss.item() * batch_size
         total_samples += batch_size

@@ -32,17 +32,28 @@ class LwFDistiller:
             previous_task_names: 历史任务名称列表 (e.g. ["mner_1", "mate_2"])
         """
         total_distill_loss = 0.0
-        
-        if not previous_task_names:
-            return torch.tensor(0.0).to(inputs['input_ids'].device)
 
+        # Assuming old_model has a 'head' which is a TaskHeadManager or dict-like
+        previous_task_names = []
+        if hasattr(self.old_model, 'head'):
+            if hasattr(self.old_model.head, 'task_heads'):
+                # TaskHeadManager structure
+                previous_task_names = list(self.old_model.head.task_heads.keys())
+            elif isinstance(self.old_model.head, torch.nn.ModuleDict) or isinstance(self.old_model.head, dict):
+                # Simple dict structure
+                previous_task_names = list(self.old_model.head.keys())
+        if not previous_task_names:
+            # No previous tasks found (e.g., first task), return 0 loss
+            return torch.tensor(0.0).to(inputs['input_ids'].device)
         # 获取 Encoder 特征 (避免重复计算)
         # 注意：如果使用了 DDAS 或 MoE，可能需要小心特征是否一致，这里假设 Backbone 输出特征可复用
         # 为了严谨，我们让模型自己处理 forward
         
         for task_name in previous_task_names:
             # 1. 让旧模型使用旧 Head 预测
-            self.old_model.set_active_head(task_name)
+            if hasattr(self.old_model, 'set_active_head'):
+                self.old_model.set_active_head(task_name)
+
             with torch.no_grad():
                 # 调用 model 的 forward，它会自动使用 set_active_head 设置的 head
                 # 注意：inputs 解包
@@ -55,21 +66,23 @@ class LwFDistiller:
                          inputs.get('token_type_ids'), 
                          inputs['image_tensor']
                      )
-                     # 如果 model forward 返回的是 tuple (loss, logits)，取 logits
-                     if isinstance(old_logits, tuple):
-                         old_logits = old_logits[1]
+                     # Handle tuple return (loss, logits) or just logits
+                    old_logits = old_out[1] if isinstance(old_out, tuple) else old_out
+                else:
+                    logger.warning("LwF: old_model structure unrecognized (no base_model). Skipping.")
+                    continue
 
             # 2. 让当前新模型使用旧 Head 预测 (这是为了让新模型"记住"旧任务的映射关系)
             # 这是一个关键点：新模型不仅要学新任务，还要在旧 Head 上模仿旧模型的行为
-            current_model.set_active_head(task_name)
+            if hasattr(current_model, 'set_active_head'):
+                current_model.set_active_head(task_name)
             new_logits_on_old_task = current_model(
                  inputs['input_ids'], 
                  inputs['attention_mask'], 
                  inputs.get('token_type_ids'), 
                  inputs['image_tensor']
             )
-            if isinstance(new_logits_on_old_task, tuple):
-                new_logits_on_old_task = new_logits_on_old_task[1]
+            new_logits_on_old_task = new_out[1] if isinstance(new_out, tuple) else new_out
 
             # 3. 计算 KL 散度
             # 展平 (Batch * Seq, Num_Labels) 以适配 token-level
