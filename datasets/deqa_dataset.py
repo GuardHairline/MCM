@@ -384,6 +384,7 @@ class MATEDatasetDEQA(Dataset):
         image_tensor = self._load_image(image_path)
         
         # 6. 编码描述
+        image_name = os.path.basename(image_path)
         description_input_ids, description_attention_mask = self._get_description_encoding(image_name)
         
         return {
@@ -577,6 +578,7 @@ class MABSADatasetDEQA(Dataset):
         image_tensor = self._load_image(image_path)
         
         # 编码描述
+        image_name = os.path.basename(image_path)
         description_input_ids, description_attention_mask = self._get_description_encoding(image_name)
         
         return {
@@ -782,6 +784,7 @@ class MNERDatasetDEQA(Dataset):
         image_tensor = self._load_image(image_path)
         
         # 6. 编码描述
+        image_name = os.path.basename(image_path)
         description_input_ids, description_attention_mask = self._get_description_encoding(image_name)
         
         return {
