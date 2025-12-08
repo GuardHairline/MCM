@@ -1,0 +1,422 @@
+[
+  {
+    "id": 0,
+    "file": "ID0_seq1_twitter2015_none.json",
+    "seq": "seq1",
+    "dataset": "twitter2015",
+    "strategy": "none"
+  },
+  {
+    "id": 1,
+    "file": "ID1_seq1_twitter2015_DEQA.json",
+    "seq": "seq1",
+    "dataset": "twitter2015",
+    "strategy": "DEQA"
+  },
+  {
+    "id": 2,
+    "file": "ID2_seq1_twitter2015_moe_adapters.json",
+    "seq": "seq1",
+    "dataset": "twitter2015",
+    "strategy": "moe_adapters"
+  },
+  {
+    "id": 3,
+    "file": "ID3_seq1_twitter2015_replay.json",
+    "seq": "seq1",
+    "dataset": "twitter2015",
+    "strategy": "replay"
+  },
+  {
+    "id": 4,
+    "file": "ID4_seq1_twitter2015_ewc.json",
+    "seq": "seq1",
+    "dataset": "twitter2015",
+    "strategy": "ewc"
+  },
+  {
+    "id": 5,
+    "file": "ID5_seq1_twitter2015_lwf.json",
+    "seq": "seq1",
+    "dataset": "twitter2015",
+    "strategy": "lwf"
+  },
+  {
+    "id": 6,
+    "file": "ID6_seq1_twitter2015_mas.json",
+    "seq": "seq1",
+    "dataset": "twitter2015",
+    "strategy": "mas"
+  },
+  {
+    "id": 7,
+    "file": "ID7_seq1_twitter2015_si.json",
+    "seq": "seq1",
+    "dataset": "twitter2015",
+    "strategy": "si"
+  },
+  {
+    "id": 8,
+    "file": "ID8_seq1_twitter2015_tam_cl.json",
+    "seq": "seq1",
+    "dataset": "twitter2015",
+    "strategy": "tam_cl"
+  },
+  {
+    "id": 9,
+    "file": "ID9_seq1_twitter2015_gem.json",
+    "seq": "seq1",
+    "dataset": "twitter2015",
+    "strategy": "gem"
+  },
+  {
+    "id": 10,
+    "file": "ID10_seq1_twitter2017_none.json",
+    "seq": "seq1",
+    "dataset": "twitter2017",
+    "strategy": "none"
+  },
+  {
+    "id": 11,
+    "file": "ID11_seq1_twitter2017_DEQA.json",
+    "seq": "seq1",
+    "dataset": "twitter2017",
+    "strategy": "DEQA"
+  },
+  {
+    "id": 12,
+    "file": "ID12_seq1_twitter2017_moe_adapters.json",
+    "seq": "seq1",
+    "dataset": "twitter2017",
+    "strategy": "moe_adapters"
+  },
+  {
+    "id": 13,
+    "file": "ID13_seq1_twitter2017_replay.json",
+    "seq": "seq1",
+    "dataset": "twitter2017",
+    "strategy": "replay"
+  },
+  {
+    "id": 14,
+    "file": "ID14_seq1_twitter2017_ewc.json",
+    "seq": "seq1",
+    "dataset": "twitter2017",
+    "strategy": "ewc"
+  },
+  {
+    "id": 15,
+    "file": "ID15_seq1_twitter2017_lwf.json",
+    "seq": "seq1",
+    "dataset": "twitter2017",
+    "strategy": "lwf"
+  },
+  {
+    "id": 16,
+    "file": "ID16_seq1_twitter2017_mas.json",
+    "seq": "seq1",
+    "dataset": "twitter2017",
+    "strategy": "mas"
+  },
+  {
+    "id": 17,
+    "file": "ID17_seq1_twitter2017_si.json",
+    "seq": "seq1",
+    "dataset": "twitter2017",
+    "strategy": "si"
+  },
+  {
+    "id": 18,
+    "file": "ID18_seq1_twitter2017_tam_cl.json",
+    "seq": "seq1",
+    "dataset": "twitter2017",
+    "strategy": "tam_cl"
+  },
+  {
+    "id": 19,
+    "file": "ID19_seq1_twitter2017_gem.json",
+    "seq": "seq1",
+    "dataset": "twitter2017",
+    "strategy": "gem"
+  },
+  {
+    "id": 20,
+    "file": "ID20_seq1_mix_none.json",
+    "seq": "seq1",
+    "dataset": "mix",
+    "strategy": "none"
+  },
+  {
+    "id": 21,
+    "file": "ID21_seq1_mix_DEQA.json",
+    "seq": "seq1",
+    "dataset": "mix",
+    "strategy": "DEQA"
+  },
+  {
+    "id": 22,
+    "file": "ID22_seq1_mix_moe_adapters.json",
+    "seq": "seq1",
+    "dataset": "mix",
+    "strategy": "moe_adapters"
+  },
+  {
+    "id": 23,
+    "file": "ID23_seq1_mix_replay.json",
+    "seq": "seq1",
+    "dataset": "mix",
+    "strategy": "replay"
+  },
+  {
+    "id": 24,
+    "file": "ID24_seq1_mix_ewc.json",
+    "seq": "seq1",
+    "dataset": "mix",
+    "strategy": "ewc"
+  },
+  {
+    "id": 25,
+    "file": "ID25_seq1_mix_lwf.json",
+    "seq": "seq1",
+    "dataset": "mix",
+    "strategy": "lwf"
+  },
+  {
+    "id": 26,
+    "file": "ID26_seq1_mix_mas.json",
+    "seq": "seq1",
+    "dataset": "mix",
+    "strategy": "mas"
+  },
+  {
+    "id": 27,
+    "file": "ID27_seq1_mix_si.json",
+    "seq": "seq1",
+    "dataset": "mix",
+    "strategy": "si"
+  },
+  {
+    "id": 28,
+    "file": "ID28_seq1_mix_tam_cl.json",
+    "seq": "seq1",
+    "dataset": "mix",
+    "strategy": "tam_cl"
+  },
+  {
+    "id": 29,
+    "file": "ID29_seq1_mix_gem.json",
+    "seq": "seq1",
+    "dataset": "mix",
+    "strategy": "gem"
+  },
+  {
+    "id": 30,
+    "file": "ID30_seq2_twitter2015_none.json",
+    "seq": "seq2",
+    "dataset": "twitter2015",
+    "strategy": "none"
+  },
+  {
+    "id": 31,
+    "file": "ID31_seq2_twitter2015_DEQA.json",
+    "seq": "seq2",
+    "dataset": "twitter2015",
+    "strategy": "DEQA"
+  },
+  {
+    "id": 32,
+    "file": "ID32_seq2_twitter2015_moe_adapters.json",
+    "seq": "seq2",
+    "dataset": "twitter2015",
+    "strategy": "moe_adapters"
+  },
+  {
+    "id": 33,
+    "file": "ID33_seq2_twitter2015_replay.json",
+    "seq": "seq2",
+    "dataset": "twitter2015",
+    "strategy": "replay"
+  },
+  {
+    "id": 34,
+    "file": "ID34_seq2_twitter2015_ewc.json",
+    "seq": "seq2",
+    "dataset": "twitter2015",
+    "strategy": "ewc"
+  },
+  {
+    "id": 35,
+    "file": "ID35_seq2_twitter2015_lwf.json",
+    "seq": "seq2",
+    "dataset": "twitter2015",
+    "strategy": "lwf"
+  },
+  {
+    "id": 36,
+    "file": "ID36_seq2_twitter2015_mas.json",
+    "seq": "seq2",
+    "dataset": "twitter2015",
+    "strategy": "mas"
+  },
+  {
+    "id": 37,
+    "file": "ID37_seq2_twitter2015_si.json",
+    "seq": "seq2",
+    "dataset": "twitter2015",
+    "strategy": "si"
+  },
+  {
+    "id": 38,
+    "file": "ID38_seq2_twitter2015_tam_cl.json",
+    "seq": "seq2",
+    "dataset": "twitter2015",
+    "strategy": "tam_cl"
+  },
+  {
+    "id": 39,
+    "file": "ID39_seq2_twitter2015_gem.json",
+    "seq": "seq2",
+    "dataset": "twitter2015",
+    "strategy": "gem"
+  },
+  {
+    "id": 40,
+    "file": "ID40_seq2_twitter2017_none.json",
+    "seq": "seq2",
+    "dataset": "twitter2017",
+    "strategy": "none"
+  },
+  {
+    "id": 41,
+    "file": "ID41_seq2_twitter2017_DEQA.json",
+    "seq": "seq2",
+    "dataset": "twitter2017",
+    "strategy": "DEQA"
+  },
+  {
+    "id": 42,
+    "file": "ID42_seq2_twitter2017_moe_adapters.json",
+    "seq": "seq2",
+    "dataset": "twitter2017",
+    "strategy": "moe_adapters"
+  },
+  {
+    "id": 43,
+    "file": "ID43_seq2_twitter2017_replay.json",
+    "seq": "seq2",
+    "dataset": "twitter2017",
+    "strategy": "replay"
+  },
+  {
+    "id": 44,
+    "file": "ID44_seq2_twitter2017_ewc.json",
+    "seq": "seq2",
+    "dataset": "twitter2017",
+    "strategy": "ewc"
+  },
+  {
+    "id": 45,
+    "file": "ID45_seq2_twitter2017_lwf.json",
+    "seq": "seq2",
+    "dataset": "twitter2017",
+    "strategy": "lwf"
+  },
+  {
+    "id": 46,
+    "file": "ID46_seq2_twitter2017_mas.json",
+    "seq": "seq2",
+    "dataset": "twitter2017",
+    "strategy": "mas"
+  },
+  {
+    "id": 47,
+    "file": "ID47_seq2_twitter2017_si.json",
+    "seq": "seq2",
+    "dataset": "twitter2017",
+    "strategy": "si"
+  },
+  {
+    "id": 48,
+    "file": "ID48_seq2_twitter2017_tam_cl.json",
+    "seq": "seq2",
+    "dataset": "twitter2017",
+    "strategy": "tam_cl"
+  },
+  {
+    "id": 49,
+    "file": "ID49_seq2_twitter2017_gem.json",
+    "seq": "seq2",
+    "dataset": "twitter2017",
+    "strategy": "gem"
+  },
+  {
+    "id": 50,
+    "file": "ID50_seq2_mix_none.json",
+    "seq": "seq2",
+    "dataset": "mix",
+    "strategy": "none"
+  },
+  {
+    "id": 51,
+    "file": "ID51_seq2_mix_DEQA.json",
+    "seq": "seq2",
+    "dataset": "mix",
+    "strategy": "DEQA"
+  },
+  {
+    "id": 52,
+    "file": "ID52_seq2_mix_moe_adapters.json",
+    "seq": "seq2",
+    "dataset": "mix",
+    "strategy": "moe_adapters"
+  },
+  {
+    "id": 53,
+    "file": "ID53_seq2_mix_replay.json",
+    "seq": "seq2",
+    "dataset": "mix",
+    "strategy": "replay"
+  },
+  {
+    "id": 54,
+    "file": "ID54_seq2_mix_ewc.json",
+    "seq": "seq2",
+    "dataset": "mix",
+    "strategy": "ewc"
+  },
+  {
+    "id": 55,
+    "file": "ID55_seq2_mix_lwf.json",
+    "seq": "seq2",
+    "dataset": "mix",
+    "strategy": "lwf"
+  },
+  {
+    "id": 56,
+    "file": "ID56_seq2_mix_mas.json",
+    "seq": "seq2",
+    "dataset": "mix",
+    "strategy": "mas"
+  },
+  {
+    "id": 57,
+    "file": "ID57_seq2_mix_si.json",
+    "seq": "seq2",
+    "dataset": "mix",
+    "strategy": "si"
+  },
+  {
+    "id": 58,
+    "file": "ID58_seq2_mix_tam_cl.json",
+    "seq": "seq2",
+    "dataset": "mix",
+    "strategy": "tam_cl"
+  },
+  {
+    "id": 59,
+    "file": "ID59_seq2_mix_gem.json",
+    "seq": "seq2",
+    "dataset": "mix",
+    "strategy": "gem"
+  }
+]
