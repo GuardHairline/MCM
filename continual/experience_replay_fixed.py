@@ -285,6 +285,10 @@ class ExperienceReplayMemory:
     def sample_replay_session(self, current_step: int, model: torch.nn.Module, 
                              device: torch.device, args: dict) -> Optional[str]:
         """从符合条件的会话中采样一个进行重放"""
+        # 1. 如果没有历史会话（第一个任务），直接返回 None，不打日志
+        if not self.session_memory_buffers:
+            return None
+            
         eligible_sessions = []
         for session_name, buffer in self.session_memory_buffers.items():
             replay_frequency = buffer["replay_frequency"]
