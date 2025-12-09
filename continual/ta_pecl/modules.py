@@ -26,86 +26,112 @@ class LoRAExpert(nn.Module):
         # x: [batch, seq_len, dim]
         return self.lora_B(self.lora_A(self.dropout(x))) * self.scaling
 
-class TaskAwareRouter(nn.Module):
+class SoftPriorRouter(nn.Module):
     """
-    任务感知路由器 (Task-Aware Router)
-    核心机制：结合输入特征(Content) 和 任务嵌入(Task Intent) 来动态分配专家权重。
+    软先验路由器：
+    Score = Dynamic_Gate(x) + Task_Bias[t] + Mode_Bias[m]
     """
-    def __init__(self, input_dim, num_tasks, num_experts, top_k=2):
+    def __init__(self, input_dim, num_tasks, num_modes, expert_config, top_k=4):
         super().__init__()
-        self.num_experts = num_experts
+        self.expert_names = list(expert_config.keys())
+        self.num_experts = len(self.expert_names)
         self.top_k = top_k
         
-        # 任务嵌入层：模型将自动学习这 4 个任务在向量空间中的关系
-        self.task_embedding = nn.Embedding(num_tasks, input_dim)
+        # 1. 动态门控 (Content-based)
+        # 初始权重设小一点，让先验起主导作用
+        self.dynamic_gate = nn.Linear(input_dim, self.num_experts, bias=False)
+        nn.init.normal_(self.dynamic_gate.weight, std=0.01)
+
+        # 2. 任务偏置矩阵 [Num_Tasks, Num_Experts]
+        self.task_bias = nn.Parameter(torch.zeros(num_tasks, self.num_experts))
         
-        # 门控网络
-        self.gate = nn.Sequential(
-            nn.Linear(input_dim * 2, input_dim), # 输入是 Content + Task_Emb
-            nn.ReLU(),
-            nn.Linear(input_dim, num_experts)
-        )
-        self.register_buffer('activation_counts', torch.zeros(num_experts))
-        self.register_buffer('accumulated_weights', torch.zeros(num_experts))
-        self.total_samples = 0 # 记录处理的总样本数
+        # 3. 模态偏置矩阵 [Num_Modes, Num_Experts]
+        self.mode_bias = nn.Parameter(torch.zeros(num_modes, self.num_experts))
+        
+        # --- 初始化偏置 (注入你的设计思想) ---
+        self._initialize_biases(expert_config)
+
+        # 统计缓冲
+        self.register_buffer('activation_counts', torch.zeros(self.num_experts))
+        self.register_buffer('accumulated_weights', torch.zeros(self.num_experts))
+        self.total_samples = 0
+
+    def _initialize_biases(self, expert_config):
+        """
+        根据 config 中的 init_task_id / init_mode_id 设置强先验
+        """
+        # 默认偏置为负值 (抑制)，选中的设为正值 (激活)
+        with torch.no_grad():
+            self.task_bias.fill_(-1.0)
+            self.mode_bias.fill_(-1.0)
+            
+            for idx, name in enumerate(self.expert_names):
+                cfg = expert_config[name]
+                
+                # 设置任务偏置
+                if 'init_task_id' in cfg:
+                    tid = cfg['init_task_id']
+                    # 强激活：比如 +3.0，足以在 Softmax 中占据优势
+                    self.task_bias[tid, idx] = 3.0 
+                
+                # 设置模态偏置
+                if 'init_mode_id' in cfg:
+                    mid = cfg['init_mode_id']
+                    self.mode_bias[mid, idx] = 2.0 # 模态偏置稍微弱一点，允许任务覆盖
+
     def reset_stats(self):
-        """重置统计数据"""
         self.activation_counts.zero_()
         self.accumulated_weights.zero_()
         self.total_samples = 0
-    def forward(self, x, task_id):
+
+    def forward(self, x, task_id, mode_id):
         """
-        x: [batch, seq_len, dim]
-        task_id: [batch] or int or scalar tensor
+        x: [batch, seq, dim]
+        task_id: int or [batch]
+        mode_id: int or [batch]
         """
         batch_size = x.shape[0]
         
-        # 1. 获取内容摘要 (Simple Pooling)
+        # Pooling
         if x.dim() == 3:
-            state_pooled = x.mean(dim=1) # [batch, dim]
+            x_pooled = x.mean(dim=1)
         else:
-            state_pooled = x
-
-        # 2. 获取任务意图
-        # 处理 task_id 的各种可能格式 (int, tensor scalar, tensor vector)
+            x_pooled = x
+            
+        # 1. 计算动态分数
+        dynamic_logits = self.dynamic_gate(x_pooled) # [B, E]
+        
+        # 2. 获取偏置
+        # 扩展 task_id / mode_id
         if isinstance(task_id, int):
             task_id = torch.full((batch_size,), task_id, device=x.device, dtype=torch.long)
-        elif isinstance(task_id, torch.Tensor):
-            if task_id.dim() == 0:
-                task_id = task_id.expand(batch_size)
-            elif task_id.dim() == 1 and task_id.size(0) == 1:
-                task_id = task_id.expand(batch_size)
-            # 否则假设已经是 [batch_size]
+        if isinstance(mode_id, int):
+            mode_id = torch.full((batch_size,), mode_id, device=x.device, dtype=torch.long)
             
-        task_id = task_id.to(x.device).long()
+        t_bias = self.task_bias[task_id] # [B, E]
+        m_bias = self.mode_bias[mode_id] # [B, E]
         
-        task_emb = self.task_embedding(task_id) # [batch, dim]
-
-        # 3. 融合决策
-        router_input = torch.cat([state_pooled, task_emb], dim=-1)
-        logits = self.gate(router_input) # [batch, num_experts]
-
-        # 4. Top-K 选通 (含噪声增强探索)
+        # 3. 叠加总分
+        total_logits = dynamic_logits + t_bias + m_bias
+        
+        # 训练噪声
         if self.training:
-            noise = torch.randn_like(logits) * 0.05
-            logits = logits + noise
+            total_logits = total_logits + torch.randn_like(total_logits) * 0.1
             
-        top_k_logits, indices = logits.topk(self.top_k, dim=-1)
+        # 4. Top-K 竞争
+        # 此时所有专家（定死的、灵活的）一起根据 total_logits 竞争前 K 个名额
+        top_k_logits, indices = total_logits.topk(self.top_k, dim=-1)
+        weights = F.softmax(top_k_logits, dim=-1)
         
-        # 5. 计算归一化权重
-        weights = F.softmax(top_k_logits, dim=-1) # [batch, k]
+        # 5. 统计
         with torch.no_grad():
             self.total_samples += batch_size
-            # 展平 indices 和 weights 以便 scatter_add
-            flat_indices = indices.flatten() # [B * K]
-            flat_weights = weights.flatten() # [B * K]
-            
-            # 统计激活次数 (每个索引位置 +1)
+            flat_indices = indices.flatten()
+            flat_weights = weights.flatten()
             ones = torch.ones_like(flat_indices, dtype=torch.float)
             self.activation_counts.scatter_add_(0, flat_indices, ones)
-            
-            # 统计权重总和
             self.accumulated_weights.scatter_add_(0, flat_indices, flat_weights)
+            
         return indices, weights
 
 class TA_PECL_Block(nn.Module):
@@ -113,22 +139,20 @@ class TA_PECL_Block(nn.Module):
     TA-PECL 核心块：包含一个 Router 和 一组 Experts。
     将被插入到 Transformer 的每一层。
     """
-    def __init__(self, hidden_size, num_tasks, expert_config, top_k=2):
+    def __init__(self, hidden_size, num_tasks, num_modes, expert_config, top_k=4):
         super().__init__()
         self.expert_names = list(expert_config.keys())
-        self.num_experts = len(self.expert_names)
         self.top_k = top_k
         
         # 构建专家池
         self.experts = nn.ModuleDict({
-            name: LoRAExpert(hidden_size, r=8) 
+            name: LoRAExpert(hidden_size, r=expert_config[name].get('r', 8)) 
             for name in expert_config.keys()
         })
         
         # 构建路由器
-        self.router = TaskAwareRouter(hidden_size, num_tasks, self.num_experts, top_k=top_k)
-
-    def forward(self, hidden_states, task_id):
+        self.router = SoftPriorRouter(hidden_size, num_tasks, num_modes, expert_config, top_k=top_k)
+    def forward(self, hidden_states, task_id, mode_id):
         """
         Args:
             hidden_states: [batch, seq_len, dim]
@@ -137,7 +161,7 @@ class TA_PECL_Block(nn.Module):
         batch_size = hidden_states.shape[0]
         
         # 1. 路由决策 (传入 task_id)
-        indices, weights = self.router(hidden_states, task_id)
+        indices, weights = self.router(hidden_states, task_id, mode_id)
         
         # 2. 专家计算 (Masked Dispatch)
         final_output = torch.zeros_like(hidden_states)

@@ -78,7 +78,7 @@ def train_epoch(model, train_loader, optimizer, device, args,
             pass  # 失败时使用当前head
         
     if hasattr(model.base_model, 'set_task_name'):
-        model.base_model.set_task_name(args.task_name)
+        model.base_model.set_task_name(args.task_name, args.mode)
 
     # 确保base_model的mode正确设置
     if hasattr(model, 'base_model') and hasattr(model.base_model, 'mode'):
@@ -129,6 +129,9 @@ def train_epoch(model, train_loader, optimizer, device, args,
         image_tensor = batch['image_tensor'].to(device)
         labels = batch['labels'].to(device)
         
+        # 统计标签 (修复: 必须 flatten，因为序列任务 labels 是 2D 的)
+        if hasattr(labels, 'cpu'):
+            label_counter.update(labels.cpu().numpy().flatten())
         optimizer.zero_grad()
         # 在这里定义 batch_inputs，确保对所有分支可见
 
@@ -440,7 +443,7 @@ def train_epoch(model, train_loader, optimizer, device, args,
             # 恢复当前任务的 Head
             if hasattr(model, 'set_active_head'):
                 model.set_active_head(args.session_name, strict=False)
-                
+
         # ✓ MoE Load Balancing Loss（修复版）
         if args.moe_adapters and hasattr(model, 'base_model') and hasattr(model.base_model, 'text_adapters'):
             balance_coef = getattr(args, 'moe_balance_coef', 0.01)  # 可配置的系数

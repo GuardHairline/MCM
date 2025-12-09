@@ -13,6 +13,7 @@ class TaskState:
     """
     def __init__(self):
         self.current_task_id = 0
+        self.current_mode_id = 0
 
 class TA_PECL_LayerWrapper(nn.Module):
     """
@@ -39,8 +40,9 @@ class TA_PECL_LayerWrapper(nn.Module):
         # 2. 执行 Adapter (可训练)
         # 从共享状态获取当前任务 ID
         task_id = self.task_state.current_task_id
-        
-        adapter_out = self.adapter(hidden_states, task_id)
+        mode_id = self.task_state.current_mode_id
+
+        adapter_out = self.adapter(hidden_states, task_id, mode_id)
         
         # 3. 残差连接 (Residual Connection)
         hidden_states = hidden_states + adapter_out
@@ -75,6 +77,7 @@ class TA_PECL_ModelWrapper(nn.Module):
         self.hidden_size = getattr(args, 'hidden_dim', 768)
         self.expert_config = get_expert_config(hidden_size=self.hidden_size)
         self.num_tasks = len(TASK_NAME_MAP)
+        self.num_modes = 2
         self.top_k = getattr(args, 'ta_pecl_top_k', 4)
         
         # [关键修复] 使用独立的状态对象，避免 nn.Module 循环引用
@@ -83,7 +86,7 @@ class TA_PECL_ModelWrapper(nn.Module):
         output_dir = os.path.dirname(args.output_model_path) if hasattr(args, 'output_model_path') and args.output_model_path else "./checkpoints"
         self.stats_dir = os.path.join(output_dir, "expert_stats")
         os.makedirs(self.stats_dir, exist_ok=True)
-        
+
         # 1. 自动定位并替换 Transformer 层
         self.patched_layers = self._find_and_replace_layers()
         
@@ -135,6 +138,7 @@ class TA_PECL_ModelWrapper(nn.Module):
             adapter_block = TA_PECL_Block(
                 hidden_size=self.hidden_size, 
                 num_tasks=self.num_tasks,
+                num_modes=self.num_modes,
                 expert_config=self.expert_config,
                 top_k=self.top_k
             )
@@ -164,7 +168,7 @@ class TA_PECL_ModelWrapper(nn.Module):
                 
         print(f"[TA-PECL] Backbone frozen. {count} Adapter parameter groups unfrozen.")
 
-    def set_task_name(self, task_name):
+    def set_task_name(self, task_name, mode):
         """设置当前任务ID，LayerWrapper 会通过 task_state 读取它"""
         t_name = task_name.lower()
         found = False
@@ -176,7 +180,11 @@ class TA_PECL_ModelWrapper(nn.Module):
         if not found:
             print(f"[Warning] Unknown task name '{task_name}', defaulting to MASC (id=0).")
             self.task_state.current_task_id = 0
-
+        # 2. 设置 Mode ID
+        if mode == 'text_only':
+            self.task_state.current_mode_id = 0
+        else:
+            self.task_state.current_mode_id = 1
     def forward(self, *args, **kwargs):
         """
         直接委托给 base_model。
