@@ -147,6 +147,90 @@ Use `scripts/generate_*_configs.py` to generate complete continual learning conf
 1. **Sequence 1**: `asc→ate→ner→absa→masc→mate→mner→mabsa`
 2. **Sequence 2**: `ate→ner→absa→asc→mate→mner→mabsa→masc`
 
+
+## Proposed Method: TA-PECL
+
+**Full Name**: Task-Aware Parameter-Efficient Continual Learning
+**Core Concept**: Utilizes task priors (Task ID) to construct learnable Task Embeddings, which guide a Router to dynamically select the optimal combination of LoRA experts from a Mixture of Experts (MoE) pool. This aims to address catastrophic forgetting and promote positive transfer between tasks.
+
+### 1\. Core Architecture Design
+
+TA-PECL is designed as a **plug-in module** that adopts an "In-place Layer Injection" strategy, inserted into every Transformer layer of the pre-trained backbone (e.g., DeBERTa/ViT).
+
+#### 1.1 Module Components
+
+  * **Frozen Backbone**: The original Transformer parameters are completely frozen to preserve general semantic knowledge.
+  * **Task-Aware Router**:
+      * **Input**: `Layer Input (Content)` + `Learned Task Embedding (Intent)`
+      * **Output**: Indices and weights of the Top-K experts.
+      * **Mechanism**: Implements implicit knowledge sharing by learning relationships between different tasks in the vector space (e.g., embedding vectors for MASC and MABSA will act similarly), allowing for flexible routing.
+  * **Expert Pool**: A set of parallel LoRA modules. They have pre-set roles based on initialization but are allowed to be fine-tuned during training.
+  * **Sparse Activation**: Only activates Top-K experts (default K=4) during each forward pass to ensure computational efficiency.
+
+#### 1.2 Expert Configuration
+
+The pool consists of **10 experts** categorized into four types:
+
+1.  **Task-Specific Experts (4)**: Initialized with intents corresponding to `masc`, `mate`, `mner`, and `mabsa`.
+2.  **Modality-Specific Experts (2)**: `expert_text` (handles uni-modal logic), `expert_multi` (handles cross-modal interaction).
+3.  **Auxiliary Expert (1)**: `expert_deqa`, specifically handles semantic enhancement information introduced by Image Descriptions from the DEQA dataset.
+4.  **Flexible Experts (3)**: `expert_flex_0~2`, with no pre-set identity. These capture general syntax or act as "fillers" to promote implicit transfer.
+
+### 2\. Detailed Implementation Scheme
+
+#### 2.1 Directory Structure
+
+```text
+continual/ta_pecl/
+├── config.py          # Defines expert pool structure (Expert Config) and task mapping (TASK_NAME_MAP)
+├── modules.py         # Core components: LoRAExpert, TaskAwareRouter, TA_PECL_Block
+└── model_wrapper.py   # Model wrapper: responsible for locating layers, injecting modules, and managing state
+```
+
+#### 2.2 Key Logic Flow
+
+1.  **Initialization**:
+      * After `train_refactored.py` creates the base model, it calls `TA_PECL_ModelWrapper` to wrap `base_model`.
+      * The Wrapper automatically recursively finds Transformer layers (supports `.encoder.layer` or `.text_model.encoder.layers`).
+      * The Wrapper uses `TA_PECL_LayerWrapper` to replace the original layers in-place.
+2.  **Training**:
+      * Before the start of each Batch, `set_task_name(args.task_name)` is called to update the global state.
+      * During forward propagation, the Router calculates weights by combining the current `Content` and `TaskID`.
+      * Backpropagation only updates: Active Experts, Router (including Task Embedding), and the Task Head.
+3.  **Inference**:
+      * Automatically routes based on the Task ID of the test set, without manual LoRA specification.
+      * Output features are sent to the corresponding Task Head.
+
+### 3\. Critical Development Notes
+
+#### 3.1 Engineering Solutions
+
+  * **Device Mismatch (RuntimeError: Expected all tensors to be on same device)**:
+      * *Cause*: The Wrapper initializes modules on CPU, while the main model is on GPU.
+      * *Solution*: Must explicitly call `full_model.to(device)` after injecting the Wrapper.
+  * **Recursive Infinite Loop (RecursionError)**:
+      * *Cause*: `LayerWrapper` (child) holding a reference to the `ModelWrapper` (parent) `nn.Module` object causes PyTorch's recursive traversal to lose control.
+      * *Solution*: Use a plain Python class `TaskState` to share `current_task_id` between parent and child, breaking the `nn.Module` reference chain.
+  * **Missing Interface (AttributeError: forward\_embeddings)**:
+      * *Cause*: Attempting to rewrite the entire `forward` process of BERT/DeBERTa is too complex and error-prone due to relative position encodings and masks.
+      * *Solution*: Abandon rewriting `forward` and adopt a **Layer Replacement** strategy. Directly hijack the output of Transformer layers to inject Adapters, allowing the original model's `forward` logic to handle embeddings and masking.
+
+#### 3.2 Monitoring & Debugging
+
+  * **Expert Usage Statistics**:
+      * The system has built-in statistics Buffers (`activation_counts`, `accumulated_weights`).
+      * A **"TA-PECL Expert Usage Report"** is printed at the end of each Epoch.
+      * *Focus Points*: Confirm if Task experts are frequently activated by their corresponding tasks; ensure Flexible experts are not overly active (overshadowing specific experts).
+
+#### 3.3 Parameter Configuration
+
+Ensure the following parameters are correctly passed through in `scripts/generate_task_config.py` or configuration generation scripts (requires modifying the generator's whitelist):
+
+  * `--ta_pecl 1`: Enable this module.
+  * `--ta_pecl_top_k 4`: Set the number of activated experts (recommended 3-4).
+
+
+
 ## Launch Modes & Environments
 
 ### 1. Local Quick Test

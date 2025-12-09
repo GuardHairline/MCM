@@ -131,7 +131,20 @@ def train(args, logger, all_tasks=[]):
     
     # ========== 3) 创建模型 ==========
     logger.info("Creating model")
+
     full_model = create_model(args, device, label_embedding_manager, logger)
+
+    if args.ta_pecl:
+        logger.info("🌟 Enabling TA-PECL: Wrapping Base Model with Task-Aware Experts")
+        try:
+            from continual.ta_pecl.model_wrapper import TA_PECL_ModelWrapper
+            # 将原始 base_model 替换为带 MoE/LoRA 的 Wrapper
+            full_model.base_model = TA_PECL_ModelWrapper(full_model.base_model, args)
+            full_model.to(device)
+            logger.info(f"✅ TA-PECL modules moved to {device}")
+        except Exception as e:
+            logger.error(f"Failed to initialize TA-PECL: {e}")
+            raise e
 
     # 注册当前任务的头（确保优化器/切换可用）
     current_head_key = getattr(args, 'head_key', args.session_name)
@@ -237,6 +250,12 @@ def train(args, logger, all_tasks=[]):
     total_training_steps = len(train_loader) * args.epochs if len(train_loader) > 0 else args.epochs
     scheduler = create_scheduler(optimizer, args, total_training_steps)
     
+
+    # 训练前重置统计
+    # 确保我们统计的是当前这个任务 (Session) 的数据
+    # -----------------------------------------------------
+    if hasattr(full_model, 'base_model') and hasattr(full_model.base_model, 'reset_expert_stats'):
+        full_model.base_model.reset_expert_stats()
     # ========== 7) 训练模型 ==========
     logger.info("Starting training")
     train_result = train_model(
@@ -258,7 +277,13 @@ def train(args, logger, all_tasks=[]):
         logger=logger
     )
     # train_result 是 dict，包含所有需要的内容
-    
+    # -----------------------------------------------------
+    # 训练后保存统计 (Train Phase Stats)
+    # 这反映了模型在学习过程中"想用"哪些专家
+    # -----------------------------------------------------
+    if hasattr(full_model, 'base_model') and hasattr(full_model.base_model, 'save_expert_stats'):
+        full_model.base_model.log_expert_statistics(logger, phase="TRAIN_FINAL") # 打印到日志
+        full_model.base_model.save_expert_stats(args.session_name, phase="train_final") # 保存到JSON
     # ========== 8) 保存标签嵌入 ==========
     if label_embedding_manager and args.label_embedding_path:
         label_embedding_manager.save_embedding(args.label_embedding_path)
@@ -273,6 +298,13 @@ def train(args, logger, all_tasks=[]):
     # 假设需要冻结每层一个专家，可用 args.freeze_topk_experts 参数配置
         freeze_topk = getattr(args, 'freeze_topk_experts', 1)
         freeze_topk_experts(full_model, freeze_topk)
+
+    # -----------------------------------------------------
+    # 评估前再次重置
+    # 我们想单独看模型在"推理/验证"阶段的行为
+    # -----------------------------------------------------
+    if hasattr(full_model, 'base_model') and hasattr(full_model.base_model, 'reset_expert_stats'):
+        full_model.base_model.reset_expert_stats()
     # ========== 10) 评估和更新训练信息 ==========
     logger.info("Evaluating model")
     
@@ -289,6 +321,13 @@ def train(args, logger, all_tasks=[]):
     logger.info(f"Current task DEV metrics: {current_dev_metrics['acc']:.4f}")
     logger.info(f"Current task TEST metrics (reference only): {current_test_metrics['acc']:.4f}")
     
+    # -----------------------------------------------------
+    # 评估后保存统计 (Eval Phase Stats)
+    # 这反映了模型在面对未见数据时"实际用"了哪些专家
+    # -----------------------------------------------------
+    if hasattr(full_model, 'base_model') and hasattr(full_model.base_model, 'save_expert_stats'):
+        full_model.base_model.log_expert_statistics(logger, phase="EVAL_FINAL")
+        full_model.base_model.save_expert_stats(args.session_name, phase="eval_final")
     # ========== 10.5) 0样本检测后续任务（使用DEV集，不使用TEST集） ==========
     zero_shot_metrics = {}
     if future_tasks:

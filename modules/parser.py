@@ -186,7 +186,7 @@ def create_train_parser() -> argparse.ArgumentParser:
     # DEQA (Descriptions Enhanced Question-Answering Framework)
     parser.add_argument("--deqa", type=int, default=0,
                        help="Whether to use DEQA (Descriptions Enhanced QA Framework)")
-    parser.add_argument("--description_file", type=str, default=None,
+    parser.add_argument("--description_file", type=str, default="reference/DEQA/DEQA/datasets/release/twitter2015/description_roberta.jsonl",
                        help="Path to image description file (.jsonl or .json)")
     parser.add_argument("--deqa_use_description", action="store_true", default=True,
                        help="Use description expert in DEQA")
@@ -228,7 +228,11 @@ def create_train_parser() -> argparse.ArgumentParser:
     # CLAP4CLIP
     parser.add_argument("--clap4clip", type=int, default=0,
                        help="Whether to use CL4CLAP")
-    
+    #TA-PECL 
+    parser.add_argument("--ta_pecl", type=int, default=0,
+                       help="Whether to use Task-Aware PECL (Our Proposed Method)")
+    parser.add_argument("--ta_pecl_top_k", type=int, default=4,
+                       help="Number of experts to activate in TA-PECL router (default: 4)")
     # MyMethod
     parser.add_argument("--mymethod", type=int, default=0,
                        help="Whether to use mymethod")
@@ -284,11 +288,11 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError(f"Invalid mode: {args.mode}. Must be one of {valid_modes}")
     
     # 检查持续学习策略冲突
-    cl_methods = [args.ewc, args.replay, args.lwf, args.si, args.mas, args.gem, args.pnn, args.tam_cl, args.moe_adapters, args.clap4clip, args.mymethod, getattr(args, 'deqa', 0)]
+    cl_methods = [args.ewc, args.replay, args.lwf, args.si, args.mas, args.gem, args.pnn, args.tam_cl, args.moe_adapters, args.clap4clip, args.deqa, args.ta_pecl, args.mymethod, getattr(args, 'deqa', 0)]
     active_methods = [i for i, method in enumerate(cl_methods) if method]
     
     if len(active_methods) > 1:
-        method_names = ["EWC", "Replay", "LwF", "SI", "MAS", "GEM", "PNN", "TAM-CL", "MoE-Adapters", "CLAP4CLIP", "MyMethod", "DEQA"]
+        method_names = ["EWC", "Replay", "LwF", "SI", "MAS", "GEM", "PNN", "TAM-CL", "MoE-Adapters", "CLAP4CLIP", "MyMethod", "DEQA", "TA-PECL"]
         active_names = [method_names[i] for i in active_methods]
         print(f"Warning: Multiple continual learning methods active: {active_names}")
     
