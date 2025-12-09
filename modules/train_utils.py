@@ -21,7 +21,7 @@ from continual.moe_adapters.ddas_router import DDASRouter
 from continual.clap4clip.clap4clip import CLAP4CLIP
 from continual.label_embedding_manager import LabelEmbeddingManager
 from continual.metrics import ContinualMetrics
-from continual.experience_replay_fixed import ExperienceReplayMemory, make_dynamic_replay_condition
+from continual.experience_replay_fixed import ExperienceReplayMemory, make_dynamic_replay_condition, default_replay_condition
 from datasets.get_dataset import get_dataset
 import argparse
 from transformers import get_linear_schedule_with_warmup
@@ -551,11 +551,11 @@ def create_continual_learning_components(args, full_model, train_info: Dict[str,
     # Experience Replay
     if args.replay == 1:
         replay_memory = ExperienceReplayMemory()
-        dynamic_condition = make_dynamic_replay_condition(
-            train_info.get("sessions", []), 
-            threshold_factor=0.9
-        )
-        
+        # dynamic_condition = make_dynamic_replay_condition(
+        #     train_info.get("sessions", []), 
+        #     threshold_factor=0.9
+        # )
+        dynamic_condition = default_replay_condition
         for hist_session in train_info.get("sessions", []):
             replay_memory.add_session_memory_buffer(
                 session_info=hist_session,
