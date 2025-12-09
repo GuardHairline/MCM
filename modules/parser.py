@@ -131,7 +131,7 @@ def create_train_parser() -> argparse.ArgumentParser:
                        help="Memory percentage for replay")
     parser.add_argument("--replay_ratio", type=float, default=0.5,
                        help="Ratio of replay samples to total samples")
-    parser.add_argument("--replay_frequency", type=int, default=4,
+    parser.add_argument("--replay_frequency", type=int, default=1,
                        help="Replay frequency (epochs)")
     parser.add_argument("--memory_sampling_strategy", type=str, default='random',
                        choices=['random', 'random-balanced'],

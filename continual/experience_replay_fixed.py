@@ -18,7 +18,7 @@ import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, Callable, Optional
+from typing import Dict, Callable, Optional, List
 from torch.utils.data._utils.collate import default_collate
 
 # 新增导入：用于实时评估当前模型
