@@ -27,7 +27,6 @@ class MoEAdapterLayer(nn.Module):
         
         # 使用 ModuleList 实现增量 Router (Task-Specific Routers)
         # 每个 Router 负责计算对应 Expert 的 logit (scalar)
-        # 初始只有一个 Expert，所以有一个 Router (H -> 1)
         self.routers = nn.ModuleList(
             [nn.Linear(hidden_size, 1, bias=False) for _ in range(num_experts)]
         )
@@ -42,6 +41,7 @@ class MoEAdapterLayer(nn.Module):
             nn.init.normal_(router.weight, std=0.02)
         for noise in self.noise_layers:
             nn.init.zeros_(noise.weight)
+            
         # 激活计数器（用于freeze_topk_experts）
         self.activation_counter = Counter()
         
@@ -52,12 +52,6 @@ class MoEAdapterLayer(nn.Module):
         """
         Coefficient of Variation (变异系数) 的平方
         用于load balancing loss，鼓励专家使用均匀分布
-        
-        Args:
-            x: (num_experts,) 每个专家的负载或重要性
-        
-        Returns:
-            cv^2: scalar，值越小表示分布越均匀
         """
         eps = 1e-10
         if x.shape[0] == 1:
@@ -67,17 +61,6 @@ class MoEAdapterLayer(nn.Module):
     def _noisy_top_k_gating(self, x, train):
         """
         Noisy Top-K Gating（论文核心机制）
-        
-        训练时：添加噪声探索不同专家
-        推理时：使用干净的logits
-        
-        Args:
-            x: (B, H) [CLS] token特征
-            train: bool，是否训练模式
-        
-        Returns:
-            gates: (B, E) softmax后的gate权重，top-k以外的为0
-            load: (E,) 每个专家处理的样本数（用于load balancing）
         """
         # 1. 计算每个 Expert 的 Logit
         # x: (B, H)
@@ -87,15 +70,18 @@ class MoEAdapterLayer(nn.Module):
         
         # 2. 训练时添加噪声
         if train:
-            # 计算噪声标准差
-            noise_std_list = [F.softplus(n_layer(x)) + self.noise_epsilon for n_layer in self.noise_layers]            noise_stddev = F.softplus(raw_noise_stddev) + self.noise_epsilon
-            noise_std = torch.cat(noise_std_list, dim=1) # (B, E)
+            # 计算噪声标准差 - 修复：使用 noise_layers 列表
+            noise_logits_list = [noise_layer(x) for noise_layer in self.noise_layers]
+            raw_noise_stddev = torch.cat(noise_logits_list, dim=1) # (B, E)
+            
+            noise_stddev = F.softplus(raw_noise_stddev) + self.noise_epsilon
+            
             # 添加高斯噪声
-            noisy_logits = clean_logits + (torch.randn_like(clean_logits) * noise_std)
+            noisy_logits = clean_logits + (torch.randn_like(clean_logits) * noise_stddev)
             logits = noisy_logits
         else:
             logits = clean_logits
-        # 训练时的路由约束
+            
         # 3. Top-K选择
         if self.top_k < self.num_experts:
             # 只保留top-k个专家
@@ -132,7 +118,7 @@ class MoEAdapterLayer(nn.Module):
         for p in self.experts.parameters():
             p.requires_grad = False
             
-        # 2. [关键修复] 冻结旧 Router
+        # 2. 冻结旧 Router 和 Noise
         for p in self.routers.parameters():
             p.requires_grad = False
         for p in self.noise_layers.parameters():
@@ -142,7 +128,7 @@ class MoEAdapterLayer(nn.Module):
         # 获取 LoRA 配置 (兼容性处理)
         if hasattr(self.experts[0], 'down'):
             in_features = self.experts[0].down.in_features
-            rank = self.experts[0].down.out_features # LoRA down projection out is rank
+            rank = self.experts[0].down.out_features 
         else: # LoraExpert implementation
             in_features = self.experts[0].A.in_features
             rank = self.experts[0].r
@@ -171,25 +157,15 @@ class MoEAdapterLayer(nn.Module):
     def forward(self, x):
         """
         前向传播：MoE调制
-        
-        Args:
-            x: (B, L, H) 或 (B, H) 输入特征
-        
-        Returns:
-            output: same shape as x
-            
-        Side effects:
-            self.load_loss: 设置当前batch的load balancing loss
         """
-        # ✅ 修复: 支持2D和3D输入
-        original_shape = x.shape
+        # 支持2D和3D输入
         is_2d = (x.dim() == 2)
         
         if is_2d:
             # 2D输入: (B, H) → 转换为 (B, 1, H)
             x = x.unsqueeze(1)  # (B, 1, H)
         
-        B, L, H = x.size()  # ✅ 现在总是3D
+        B, L, H = x.size()
         
         # 1. 使用[CLS] token计算gating
         cls = x[:, 0, :]  # (B, H)
@@ -207,17 +183,21 @@ class MoEAdapterLayer(nn.Module):
                 if count > 0:
                     self.activation_counter[expert_idx] += int(count)
         
+        # 4. 专家计算（密集计算以确保梯度正确传播）
+        # (B, E, L, H)
+        experts_out = torch.stack([expert(x) for expert in self.experts], dim=1)
         
-        # ✓ 密集计算：所有专家处理所有样本（推理时或use_sparse=False）
-        experts_out = torch.stack([expert(x) for expert in self.experts], dim=1)  # (B, E, L, H)
-        gates_expanded = gates.view(B, -1, 1, 1)  # (B, E, 1, 1)
-        weighted = (gates_expanded * experts_out).sum(dim=1)  # (B, L, H)
+        # (B, E, 1, 1)
+        gates_expanded = gates.view(B, -1, 1, 1)
+        
+        # 加权求和 (B, L, H)
+        weighted = (gates_expanded * experts_out).sum(dim=1)
         
         # 5. 残差连接
         output = x + weighted
         
-        # ✅ 修复: 恢复原始shape
+        # 恢复原始shape
         if is_2d:
-            output = output.squeeze(1)  # (B, 1, H) → (B, H)
+            output = output.squeeze(1)
         
         return output
