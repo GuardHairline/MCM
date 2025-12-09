@@ -15,8 +15,10 @@ from typing import Dict, Optional, Any, List
 from dataclasses import dataclass
 import logging
 import argparse
-from torch.serialization import add_safe_globals
-
+try:
+    from torch.serialization import add_safe_globals
+except ImportError:
+    add_safe_globals = None
 logger = logging.getLogger(__name__)
 
 
@@ -60,8 +62,12 @@ class TaskHeadManager:
         self.label_embedding_manager = label_embedding_manager
         self.device = device
         
-        # 存储所有任务头
+        # [核心结构]
+        # 1. 物理头存储: head_key -> TaskHeadInfo
+        #    这里存储真实的模型对象和元数据
         self._task_heads: Dict[str, TaskHeadInfo] = {}  # key=head_key
+        # 2. 映射表: session_name -> head_key
+        #    这是对外接口（Session）到内部存储（Physical Head）的桥梁
         self._session_to_headkey: Dict[str, str] = {}   # session_name -> head_key
         
         # 当前活动的任务头
@@ -70,7 +76,9 @@ class TaskHeadManager:
         
         # 统计信息
         self._head_usage_count: Dict[str, int] = {}
-        
+    def _resolve_key(self, session_name: str) -> Optional[str]:
+        """[内部辅助] 将 session_name 解析为 head_key"""
+        return self._session_to_headkey.get(session_name)
     def register_head(self, session_name: str, task_name: str, 
                      head: nn.Module, args: Any, freeze: bool = False,
                      head_key: Optional[str] = None) -> bool:
@@ -87,12 +95,20 @@ class TaskHeadManager:
         Returns:
             是否注册成功
         """
+        # 1. 确定 head_key
+        # 如果未提供，默认使用 session_name 作为 key (即不共享)
         key = head_key or session_name
 
-        # 如果同一个head_key已存在，则复用（允许多个session共用同一head）
+        # 2. 建立映射关系 (session -> key)
+        if session_name in self._session_to_headkey:
+            logger.warning(f"Session '{session_name}' already registered (mapped to '{self._session_to_headkey[session_name]}'). Overwriting mapping.")
+        self._session_to_headkey[session_name] = key
+
+        # 3. 如果该物理头已存在，说明是复用
         if key in self._task_heads:
-            self._session_to_headkey[session_name] = key
-            logger.info(f"Head '{key}' already registered, mapping session '{session_name}' to it")
+            logger.info(f"♻️ Head '{key}' already exists. Session '{session_name}' will reuse it.")
+            # 注意：这里我们不更新已存在的 HeadInfo (如 args)，保持创建时的状态
+            # 但我们需要更新 freeze 状态吗？通常遵循创建者的设定。
             return True
         
         # 确保head在正确的设备上
@@ -114,7 +130,6 @@ class TaskHeadManager:
             head_info.freeze()
         
         self._task_heads[key] = head_info
-        self._session_to_headkey[session_name] = key
         self._head_usage_count[key] = 0
         
         logger.info(f"Registered task head: {key} ({task_name}), frozen={freeze}, session='{session_name}'")
@@ -135,12 +150,15 @@ class TaskHeadManager:
         Returns:
             创建的任务头，如果失败返回None
         """
+        # 1. 确定 Key
         key = head_key or session_name
+
+        # 2. 检查复用
         if key in self._task_heads:
             logger.info(f"Task head '{key}' already exists, reusing (session '{session_name}')")
             self._session_to_headkey[session_name] = key
             return self._task_heads[key].head
-        
+        # 3. 创建新 Head
         try:
             # 选择合适的head创建函数
             if use_label_embedding:
@@ -178,17 +196,17 @@ class TaskHeadManager:
         Returns:
             是否切换成功
         """
-        key = self._session_to_headkey.get(session_name, session_name)
-
-        if key not in self._task_heads:
-            msg = f"Session '{session_name}' not found (head_key '{key}'), registered heads: {list(self._task_heads.keys())}"
-            if strict:
-                raise ValueError(msg)
-            else:
-                logger.warning(msg)
-                return False
+        # 1. 解析 Key
+        key = self._resolve_key(session_name)
         
-        # 切换head
+        # 2. 检查是否存在
+        if not key or key not in self._task_heads:
+            msg = f"Session '{session_name}' not mapped to any registered head."
+            if strict: raise ValueError(msg)
+            logger.warning(msg)
+            return False
+        
+        # 3. 切换
         head_info = self._task_heads[key]
         self._current_session = session_name
         self._current_head = head_info.head
@@ -196,7 +214,7 @@ class TaskHeadManager:
         # 更新使用计数
         self._head_usage_count[key] += 1
         
-        logger.debug(f"Switched to head: {key} ({head_info.task_name}) for session '{session_name}'")
+        logger.debug(f"Switched to head: {key} (Session: {session_name})")        
         return True
     
     def get_current_head(self) -> Optional[nn.Module]:
@@ -208,23 +226,21 @@ class TaskHeadManager:
         return self._current_session
     
     def get_head(self, session_name: str) -> Optional[nn.Module]:
-        """获取指定会话的任务头"""
-        key = self._session_to_headkey.get(session_name, session_name)
-        if key not in self._task_heads:
-            return None
-        return self._task_heads[key].head
+        key = self._resolve_key(session_name)
+        if key and key in self._task_heads:
+            return self._task_heads[key].head
+        return None
     
     def get_task_name(self, session_name: str) -> Optional[str]:
-        """获取指定会话的任务名称"""
-        key = self._session_to_headkey.get(session_name, session_name)
-        if key not in self._task_heads:
-            return None
-        return self._task_heads[key].task_name
+        key = self._resolve_key(session_name)
+        if key and key in self._task_heads:
+            return self._task_heads[key].task_name
+        return None
     
     def has_head(self, session_name: str) -> bool:
-        """检查是否存在指定会话的任务头"""
-        key = self._session_to_headkey.get(session_name, session_name)
-        return key in self._task_heads
+        """检查 session 是否有对应的 head"""
+        key = self._resolve_key(session_name)
+        return key is not None and key in self._task_heads
     
     def remove_head(self, session_name: str) -> bool:
         """
@@ -236,258 +252,174 @@ class TaskHeadManager:
         Returns:
             是否移除成功
         """
-        key = self._session_to_headkey.get(session_name, session_name)
-        if key not in self._task_heads:
-            logger.warning(f"Cannot remove non-existent head: {session_name}")
+        if session_name not in self._session_to_headkey:
             return False
         
-        # 如果正在使用这个head，清除当前状态
+        key = self._session_to_headkey[session_name]
+        
+        # 删除映射
+        del self._session_to_headkey[session_name]
+        
+        # 检查是否还有其他 session 引用这个 key
+        has_refs = any(k == key for k in self._session_to_headkey.values())
+        
+        if not has_refs:
+            # 没有引用了，彻底删除物理头
+            if key in self._task_heads:
+                del self._task_heads[key]
+            if key in self._head_usage_count:
+                del self._head_usage_count[key]
+            logger.info(f"Removed physical head '{key}' (was linked to '{session_name}')")
+        else:
+            logger.info(f"Unmapped session '{session_name}' from head '{key}' (Head still active)")
+            
         if self._current_session == session_name:
             self._current_session = None
             self._current_head = None
-        
-        # 删除head
-        del self._task_heads[key]
-        if key in self._head_usage_count:
-            del self._head_usage_count[key]
-        # 清理映射
-        to_remove = [s for s, k in self._session_to_headkey.items() if k == key]
-        for s in to_remove:
-            del self._session_to_headkey[s]
-        
-        logger.info(f"Removed task head: {key} (sessions cleared: {to_remove})")
+            
         return True
     
     def freeze_head(self, session_name: str) -> bool:
-        """冻结指定任务头"""
-        key = self._session_to_headkey.get(session_name, session_name)
-        if key not in self._task_heads:
-            logger.warning(f"Cannot freeze non-existent head: {session_name}")
-            return False
-        
-        self._task_heads[key].freeze()
-        logger.info(f"Frozen task head: {key}")
-        return True
+        key = self._resolve_key(session_name)
+        if key and key in self._task_heads:
+            self._task_heads[key].freeze()
+            return True
+        return False
     
     def freeze_all_except(self, session_name: str) -> int:
-        """冻结除指定会话外的所有任务头"""
+        """冻结除指定 Session 所用 Head 之外的所有物理头"""
+        target_key = self._resolve_key(session_name)
         count = 0
-        target_key = self._session_to_headkey.get(session_name, session_name)
-        for head_key in list(self._task_heads.keys()):
-            if head_key != target_key:
-                if self.freeze_head(head_key):
-                    count += 1
-        logger.info(f"Frozen {count} task heads (except {target_key})")
+        for key, info in self._task_heads.items():
+            if key != target_key:
+                info.freeze()
+                count += 1
+            else:
+                info.unfreeze() # 确保目标是解冻的
         return count
     
     def unfreeze_head(self, session_name: str) -> bool:
-        """解冻指定任务头"""
-        key = self._session_to_headkey.get(session_name, session_name)
-        if key not in self._task_heads:
-            logger.warning(f"Cannot unfreeze non-existent head: {session_name}")
-            return False
-        
-        self._task_heads[key].unfreeze()
-        logger.info(f"Unfrozen task head: {key}")
-        return True
+        key = self._resolve_key(session_name)
+        if key and key in self._task_heads:
+            self._task_heads[key].unfreeze()
+            return True
+        return False
     
     def get_all_sessions(self) -> List[str]:
-        """获取所有已注册会话的名称"""
         return list(self._session_to_headkey.keys())
     
     def get_head_count(self) -> int:
-        """获取已注册任务头的数量"""
+        """返回物理头的数量"""
         return len(self._task_heads)
     
+    # --- 保存与加载 ---
+    
     def save_heads(self, save_path: str) -> bool:
-        """
-        保存所有任务头
-        
-        Args:
-            save_path: 保存路径
-            
-        Returns:
-            是否保存成功
-        """
         try:
-            heads_state = {}
-            for head_key, head_info in self._task_heads.items():
-                heads_state[head_key] = {
-                    'task_name': head_info.task_name,
-                    'args': head_info.args,
-                    'head_state_dict': head_info.head.state_dict(),
-                    'created_at': head_info.created_at,
-                    'is_frozen': head_info.is_frozen,
-                    'head_key': head_info.head_key or head_key,
-                }
             state = {
-                'heads_state': heads_state,
-                'session_to_headkey': self._session_to_headkey
+                # 1. 物理头数据 (去重存储)
+                'physical_heads': {
+                    key: {
+                        'state_dict': info.head.state_dict(),
+                        'task_name': info.task_name,
+                        'args': info.args,
+                        'created_at': info.created_at,
+                        'is_frozen': info.is_frozen
+                    }
+                    for key, info in self._task_heads.items()
+                },
+                # 2. 映射关系
+                'session_mapping': self._session_to_headkey
             }
             torch.save(state, save_path)
-            logger.info(f"Saved {len(heads_state)} task heads to: {save_path}")
+            logger.info(f"Saved {len(self._task_heads)} heads and {len(self._session_to_headkey)} sessions to {save_path}")
             return True
-            
         except Exception as e:
-            logger.error(f"Failed to save task heads: {e}")
+            logger.error(f"Save failed: {e}")
             return False
-    
     def _torch_load_with_weights(self, load_path, map_location):
         """
-        Torch >=2.6 默认 weights_only=True，会阻止反序列化 Namespace。
-        这里显式设置 weights_only=False，并允许 argparse.Namespace 以保证兼容老文件。
+        兼容不同 PyTorch 版本的加载逻辑
         """
-        try:
-            add_safe_globals([argparse.Namespace])
-        except Exception:
-            pass
+        # 1. 尝试注册安全全局变量 (仅新版本有效)
+        if add_safe_globals is not None:
+            try:
+                add_safe_globals([argparse.Namespace])
+            except Exception:
+                pass
+                
+        # 2. 尝试使用 weights_only=False (新版本默认 True)
         try:
             return torch.load(load_path, map_location=map_location, weights_only=False)
         except TypeError:
-            # 老版本不支持 weights_only 参数
+            # 老版本 PyTorch 不支持 weights_only 参数
             return torch.load(load_path, map_location=map_location)
-
     def load_heads(self, load_path: str, strict: bool = False) -> int:
-        """
-        加载任务头
-        
-        Args:
-            load_path: 加载路径
-            strict: 是否严格模式（加载失败时报错）
-            
-        Returns:
-            成功加载的任务头数量
-        """
         if not os.path.exists(load_path):
-            msg = f"Task heads file not found: {load_path}"
-            if strict:
-                raise FileNotFoundError(msg)
-            else:
-                logger.warning(msg)
-                return 0
+            if strict: raise FileNotFoundError(load_path)
+            return 0
         
         try:
-            raw_state = self._torch_load_with_weights(load_path, map_location=self.device)
-            if isinstance(raw_state, dict) and 'heads_state' in raw_state:
-                heads_state = raw_state.get('heads_state', {})
-                self._session_to_headkey.update(raw_state.get('session_to_headkey', {}))
-            else:
-                heads_state = raw_state
-            loaded_count = 0
+            state = self._torch_load_with_weights(load_path, map_location=self.device)
             
-            for head_key, head_data in heads_state.items():
+            # 检查格式
+            if isinstance(state, dict) and 'physical_heads' in state:
+                # 新版格式
+                phy_heads = state['physical_heads']
+                mapping = state.get('session_mapping', {})
+            else:
+                # 旧版格式 (直接是 session -> info)
+                # 尝试自动升级
+                phy_heads = {}
+                mapping = {}
+                for k, v in state.items():
+                    phy_heads[k] = {
+                        'state_dict': v['head_state_dict'],
+                        'task_name': v['task_name'],
+                        'args': v['args']
+                    }
+                    mapping[k] = k
+            
+            # 恢复数据
+            loaded = 0
+            self._session_to_headkey.update(mapping)
+            
+            for key, data in phy_heads.items():
                 try:
-                    # 重新创建任务头
-                    task_name = head_data['task_name']
-                    args = head_data['args']
-                    use_label_embedding = getattr(args, 'use_label_embedding', False)
-                    saved_head_key = head_data.get('head_key', head_key)
-                    # 如果已有映射，优先使用；否则默认 session_name=head_key
-                    session_name = head_key
-                    for s, k in self._session_to_headkey.items():
-                        if k == saved_head_key:
-                            session_name = s
-                            break
-                    
-                    # 创建head
-                    head = self.create_and_register_head(
-                        session_name, task_name, args, use_label_embedding, head_key=saved_head_key
+                    # 重新创建 head
+                    self.create_and_register_head(
+                        session_name=key, # 临时用 key 当 session
+                        task_name=data['task_name'],
+                        args=data['args'],
+                        use_label_embedding=getattr(data['args'], 'use_label_embedding', False),
+                        head_key=key # 强制指定 Key
                     )
                     
-                    if head is not None:
-                        # 加载参数
-                        head.load_state_dict(head_data['head_state_dict'])
+                    # 加载参数
+                    if key in self._task_heads:
+                        self._task_heads[key].head.load_state_dict(data['state_dict'])
                         
                         # 恢复冻结状态
-                        if head_data.get('is_frozen', False):
-                            self.freeze_head(session_name)
-                        
-                        loaded_count += 1
-                        logger.info(f"Loaded task head: {saved_head_key} ({task_name}), session='{session_name}'")
-                    else:
-                        logger.warning(f"Failed to create head for: {session_name}")
+                        if data.get('is_frozen', False):
+                            self._task_heads[key].freeze()
+                            
+                        loaded += 1
                         
                 except Exception as e:
-                    msg = f"Failed to load head '{session_name}': {e}"
-                    if strict:
-                        raise RuntimeError(msg)
-                    else:
-                        logger.warning(msg)
-                        continue
+                    logger.warning(f"Failed to restore head '{key}': {e}")
             
-            logger.info(f"Successfully loaded {loaded_count}/{len(heads_state)} task heads")
-            return loaded_count
+            logger.info(f"Restored {loaded} physical heads.")
+            return loaded
             
         except Exception as e:
-            msg = f"Failed to load task heads from {load_path}: {e}"
-            if strict:
-                raise RuntimeError(msg)
-            else:
-                logger.error(msg)
-                return 0
-    
-    def print_summary(self):
-        """打印任务头管理器摘要"""
-        print("="*80)
-        print("Task Head Manager Summary")
-        print("="*80)
-        print(f"Total registered heads: {len(self._task_heads)}")
-        print(f"Current active session: {self._current_session}")
-        print(f"Device: {self.device}")
-        print("\nRegistered heads:")
-        
-        for head_key, head_info in self._task_heads.items():
-            is_current = "✓" if head_key == self._session_to_headkey.get(self._current_session, self._current_session) else " "
-            frozen = "🔒" if head_info.is_frozen else "🔓"
-            usage = self._head_usage_count.get(head_key, 0)
+            logger.error(f"Load failed: {e}")
+            return 0
             
-            mapped_sessions = [s for s, k in self._session_to_headkey.items() if k == head_key]
-            print(f"  [{is_current}] {frozen} {head_key} (sessions: {mapped_sessions})")
-            print(f"      Task: {head_info.task_name}")
-            print(f"      Created: {head_info.created_at}")
-            print(f"      Usage count: {usage}")
-        
-        print("="*80)
-    
-    def validate_head(self, session_name: str) -> tuple[bool, str]:
-        """
-        验证任务头是否正常
-        
-        Returns:
-            (is_valid, error_message)
-        """
-        if session_name not in self._task_heads:
-            return False, f"Head not found: {session_name}"
-        
-        head_info = self._task_heads[session_name]
-        head = head_info.head
-        
-        # 检查head是否在正确的设备上
-        try:
-            first_param = next(head.parameters())
-            if str(first_param.device) != str(self.device):
-                return False, f"Head on wrong device: {first_param.device} (expected {self.device})"
-        except StopIteration:
-            return False, "Head has no parameters"
-        
-        # 检查head是否可以前向传播
-        # 这里可以添加更多验证逻辑
-        
-        return True, "OK"
+    def print_summary(self):
+        print(f"\n[HeadManager] Physical Heads: {len(self._task_heads)} | Mapped Sessions: {len(self._session_to_headkey)}")
+        for key, info in self._task_heads.items():
+            sessions = [s for s, k in self._session_to_headkey.items() if k == key]
+            print(f"  - Key: {key:<20} | Task: {info.task_name:<5} | Used by: {sessions}")
 
-
-def create_task_head_manager(base_model, label_embedding_manager=None, 
-                             device='cuda') -> TaskHeadManager:
-    """
-    创建任务头管理器的工厂函数
-    
-    Args:
-        base_model: 基础模型
-        label_embedding_manager: 标签嵌入管理器
-        device: 设备
-        
-    Returns:
-        任务头管理器实例
-    """
+def create_task_head_manager(base_model, label_embedding_manager=None, device='cuda') -> TaskHeadManager:
     return TaskHeadManager(base_model, label_embedding_manager, device)
-

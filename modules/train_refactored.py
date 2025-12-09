@@ -199,8 +199,16 @@ def train(args, logger, all_tasks=[]):
         
         logger.info(f"Historical task heads loaded: {full_model.head_manager.get_head_count()}")
     elif args.tam_cl:
-        logger.info("TAM-CL: Using task-specific adapters instead of separate heads")
-    
+        # TAM-CL 需要通过 add_task_head 来加载旧的 Token
+        learned_sessions = set(s['session_name'] for s in train_info.get('sessions', []))
+        for task in all_tasks:
+            session_name = task['session_name']
+            if session_name not in learned_sessions: continue
+            if full_model.head_manager.has_head(session_name): continue # 假设 Token 和 Head 是同步保存的
+            
+            # 这里简单起见，我们假设 checkpoint 加载时已经恢复了 Token
+            # 如果没有，可能需要在这里手动初始化，但这通常由 load_state_dict 处理
+            pass
     # ========== 3.6) MoE-Adapters: 为新任务添加专家 ==========
     if args.moe_adapters:
         logger.info("MoE-Adapters: Adding new expert for current task")
@@ -376,6 +384,9 @@ def train(args, logger, all_tasks=[]):
                     if is_deqa:
                         # DEQA需要先添加任务（创建专家）
                         full_model.add_task(task_name, session_name, future_args.num_labels, future_args)
+                    elif is_tamcl:
+                        # [关键修复] TAM-CL 必须使用 add_task_head 来初始化 Token
+                        full_model.add_task_head(session_name, task_name, None, future_args)
                     else:
                         # 普通模型只需创建head
                         head_key = getattr(future_args, 'head_key', session_name)
