@@ -80,6 +80,10 @@ class TA_PECL_ModelWrapper(nn.Module):
         # [关键修复] 使用独立的状态对象，避免 nn.Module 循环引用
         self.task_state = TaskState()
         
+        output_dir = os.path.dirname(args.output_model_path) if hasattr(args, 'output_model_path') and args.output_model_path else "./checkpoints"
+        self.stats_dir = os.path.join(output_dir, "expert_stats")
+        os.makedirs(self.stats_dir, exist_ok=True)
+        
         # 1. 自动定位并替换 Transformer 层
         self.patched_layers = self._find_and_replace_layers()
         

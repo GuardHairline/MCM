@@ -76,7 +76,10 @@ def train_epoch(model, train_loader, optimizer, device, args,
             model.set_active_head(args.session_name, strict=False)
         except:
             pass  # 失败时使用当前head
-    
+        
+    if hasattr(model.base_model, 'set_task_name'):
+        model.base_model.set_task_name(args.task_name)
+
     # 确保base_model的mode正确设置
     if hasattr(model, 'base_model') and hasattr(model.base_model, 'mode'):
         current_mode = getattr(args, 'mode', 'multimodal')
@@ -673,7 +676,8 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, device, a
             logger.info(f"{'='*80}")
             logger.info(f"Epoch {epoch+1}/{args.epochs}")
             logger.info(f"{'='*80}")
-        
+        if hasattr(model, 'base_model') and hasattr(model.base_model, 'reset_expert_stats'):
+            model.base_model.reset_expert_stats()
         # 训练
         train_loss = train_epoch(
             model, train_loader, optimizer, device, args,
@@ -683,7 +687,9 @@ def train_model(model, train_loader, val_loader, optimizer, scheduler, device, a
             scheduler=scheduler,
             logger_obj=logger
         )
-                
+        # 训练结束后打印统计 (Train Phase Statistics)
+        if hasattr(model, 'base_model') and hasattr(model.base_model, 'log_expert_statistics'):
+            model.base_model.log_expert_statistics(logger, phase="TRAIN FINAL")        
         # 验证
         val_loss, metrics = validate_epoch(model, val_loader, device, args, logger)
         

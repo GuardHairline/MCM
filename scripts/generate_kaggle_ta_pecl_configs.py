@@ -52,7 +52,7 @@ def generate_configs():
         "use_bilstm": 0,
         "use_span_loss": 0,
         "triaffine": 0,
-        "lr": 1e-5,
+        "lr": 1e-3,
         "batch_size": 16,
         "epochs": 20,
         "patience": 5,
