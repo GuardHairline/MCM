@@ -349,7 +349,9 @@ def train(args, logger, all_tasks=[]):
         # 两者都使用相同的head_manager机制！
         
         from models.deqa_expert_model import DEQAMultimodalModel
+        from continual.tam_cl import TamCLModel # 需要导入用于判断
         is_deqa = isinstance(full_model, DEQAMultimodalModel)
+        is_tamcl = isinstance(full_model, TamCLModel) or (getattr(args, 'tam_cl', 0) == 1)
         if is_deqa:
             logger.info("   (DEQA模型: 使用DEQA专家融合特征 + 临时随机head)")
         
