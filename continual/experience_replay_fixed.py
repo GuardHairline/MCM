@@ -216,7 +216,7 @@ class ExperienceReplayMemory:
                                   session_info: Dict,
                                   memory_percentage: float,
                                   replay_ratio: float = 0.5,
-                                  replay_frequency: int = 4,
+                                  replay_frequency: int = 1,
                                   replay_condition: Callable = default_replay_condition):
         """
         注册历史训练会话用于经验重放
@@ -281,6 +281,19 @@ class ExperienceReplayMemory:
             return True
         else:
             return False
+    def get_all_replay_sessions(self, current_step: int, model: torch.nn.Module, 
+                               device: torch.device, args: dict) -> List[str]:
+        eligible_sessions = []
+        for session_name, buffer in self.session_memory_buffers.items():
+            replay_frequency = buffer["replay_frequency"]
+            replay_condition = buffer["replay_condition"]
+            
+            # 只有当 step 符合频率，且满足条件（如性能下降）时才回放
+            if current_step % replay_frequency == 0:
+                if replay_condition(buffer["session_info"], model, device, args):
+                    eligible_sessions.append(session_name)
+        
+        return eligible_sessions
     
     def sample_replay_session(self, current_step: int, model: torch.nn.Module, 
                              device: torch.device, args: dict) -> Optional[str]:

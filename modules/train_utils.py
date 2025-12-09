@@ -600,7 +600,7 @@ def create_continual_learning_components(args, full_model, train_info: Dict[str,
         for session in train_info["sessions"]:
             sess_args = argparse.Namespace(**session["args"])
             old_ds = get_dataset(session["task_name"], "train", sess_args)
-            gem.register_task(session["task_name"], old_ds)
+            gem.register_task(session["session_name"], old_ds)
     
     # PNN
     if args.pnn:

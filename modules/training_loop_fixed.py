@@ -409,19 +409,38 @@ def train_epoch(model, train_loader, optimizer, device, args,
             if isinstance(mas_loss, torch.Tensor) and mas_loss.requires_grad:
                 loss = loss + mas_loss
         
-        # Experience Replay（修复版：在batch训练时集成）
+        # Experience Replay (修复版：遍历所有历史 Session)
         if replay_memory and hasattr(args, 'replay') and args.replay:
-            # 每隔几个batch进行一次replay
-            if batch_idx % getattr(args, 'replay_frequency', 4) == 0:
-                replay_session = replay_memory.sample_replay_session(batch_idx, model, device, args)
-                if replay_session is not None:
-                    replay_loss = replay_memory.compute_replay_loss(replay_session, model, device)
-                    if replay_loss is not None:
-                        replay_weight = getattr(args, 'replay_weight', 0.5)
-                        loss = loss + replay_weight * replay_loss
-                        if logger_obj and batch_idx % 10 == 0:
-                            logger_obj.debug(f"Added replay loss from '{replay_session}': {replay_loss.item():.4f}")
-        
+            # 获取所有需要回放的 Session 列表
+            replay_sessions = replay_memory.get_all_replay_sessions(batch_idx, model, device, args)
+            
+            if replay_sessions:
+                total_replay_loss = 0.0
+                valid_replay_count = 0
+                
+                for r_session in replay_sessions:
+                    # 计算单个 Session 的 Loss
+                    r_loss = replay_memory.compute_replay_loss(r_session, model, device)
+                    if r_loss is not None:
+                        total_replay_loss += r_loss
+                        valid_replay_count += 1
+                
+                # 如果有有效的回放 Loss
+                if valid_replay_count > 0:
+                    # 平均化 Loss (或者求和，取决于 args.replay_weight 的定义)
+                    # 通常我们希望 replay_loss 的量级不随历史任务数量线性爆炸，所以取平均
+                    avg_replay_loss = total_replay_loss / valid_replay_count
+                    replay_weight = getattr(args, 'replay_weight', 0.5)
+                    
+                    loss = loss + replay_weight * avg_replay_loss
+                    
+                    if logger_obj and batch_idx % 50 == 0:
+                        logger_obj.debug(f"Replayed {valid_replay_count} sessions. Avg Loss: {avg_replay_loss.item():.4f}")
+            
+            # 恢复当前任务的 Head
+            if hasattr(model, 'set_active_head'):
+                model.set_active_head(args.session_name, strict=False)
+                
         # ✓ MoE Load Balancing Loss（修复版）
         if args.moe_adapters and hasattr(model, 'base_model') and hasattr(model.base_model, 'text_adapters'):
             balance_coef = getattr(args, 'moe_balance_coef', 0.01)  # 可配置的系数
