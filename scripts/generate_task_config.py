@@ -1,3 +1,4 @@
+# scripts/generate_task_config.py
 #!/usr/bin/env python3
 """
 任务配置文件生成器
@@ -823,7 +824,7 @@ class TaskConfigGenerator:
         
         # 为DEQA策略设置description_file
         description_file = None
-        if strategy == "deqa":
+        if strategy == "deqa" or strategy == "ta_pecl":
             if dataset == "twitter2015":
                 description_file = "reference/DEQA/DEQA/datasets/release/twitter2015/description_roberta.jsonl"
             elif dataset == "twitter2017":

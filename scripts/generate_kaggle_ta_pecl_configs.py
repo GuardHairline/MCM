@@ -25,7 +25,7 @@ def generate_configs():
     # ==========================================
     # 本地保存配置文件的路径
     current_dir = Path(__file__).parent
-    config_save_dir = current_dir / "configs" / "kaggle_head_comparison"
+    config_save_dir = current_dir / "configs" / "kaggle_ta_pecl"
     config_save_dir.mkdir(parents=True, exist_ok=True)
     
     # Kaggle 运行时环境路径
@@ -55,11 +55,15 @@ def generate_configs():
         "lr": 1e-5,
         "batch_size": 16,
         "epochs": 20,
+        "patience": 5,
         "save_checkpoints": 0,
         "debug_samples": 100,
         "num_workers": 4,
         "data_dir": DATA_DIR,
-        "image_dir": f"{DATA_DIR}/img"
+        "image_dir": f"{DATA_DIR}/img",
+        "ta_pecl": 1,
+        "ta_pecl_top_k": 4,
+        "description_file": "reference/DEQA/DEQA/datasets/release/twitter2015/description_roberta.jsonl"
     }
 
     # ==========================================
@@ -87,14 +91,18 @@ def generate_configs():
                 session_name=step_name,
                 dataset=dataset,
                 env="kaggle", 
-                strategy="none",
+                strategy="ta_pecl",
                 mode=mode,
                 **common_params
             )
             
             # --- 定制参数 ---
             task_conf["head_key"] = head_keys[i]
-            
+            task_conf["save_checkpoints"] = common_params.get("save_checkpoints", 0)
+            task_conf["debug_samples"] = common_params.get("debug_samples", 100)
+            task_conf["data_dir"] = common_params.get("data_dir", DATA_DIR)
+            task_conf["ta_pecl"] = common_params.get("ta_pecl", 1)
+            task_conf["ta_pecl_top_k"] = common_params.get("ta_pecl_top_k", 4)
             # 链式加载
             if i > 0:
                 task_conf["pretrained_model_path"] = prev_model_path
@@ -136,28 +144,17 @@ def generate_configs():
     # 实验 1: 4-Head
     # ==========================================
     keys_4head = ["masc", "mate", "mner", "mabsa", "masc", "mate", "mner", "mabsa"]
-    config_1 = create_experiment_config("Exp1_4Head_Shared", keys_4head, "exp1_4head")
+    config_1 = create_experiment_config("TA_PECL", keys_4head, "ta_pecl")
     
-    path_1 = config_save_dir / "exp1_4head.json"
+    path_1 = config_save_dir / "ta_pecl.json"
     with open(path_1, 'w', encoding='utf-8') as f:
         json.dump(config_1, f, indent=4)
     print(f"✅ Generated: {path_1}")
 
-    # ==========================================
-    # 实验 2: 8-Head
-    # ==========================================
-    keys_8head = ["masc_1", "mate_2", "mner_3", "mabsa_4", "masc_5", "mate_6", "mner_7", "mabsa_8"]
-    config_2 = create_experiment_config("Exp2_8Head_Independent", keys_8head, "exp2_8head")
-    
-    path_2 = config_save_dir / "exp2_8head.json"
-    with open(path_2, 'w', encoding='utf-8') as f:
-        json.dump(config_2, f, indent=4)
-    print(f"✅ Generated: {path_2}")
 
     # 生成索引
     index = {
-        "1": f"scripts/configs/kaggle_head_comparison/exp1_4head.json",
-        "2": f"scripts/configs/kaggle_head_comparison/exp2_8head.json"
+        "1": f"scripts/configs/kaggle_ta_pecl/ta_pecl.json",
     }
     with open(config_save_dir / "experiment_index.json", 'w') as f:
         json.dump(index, f, indent=4)
