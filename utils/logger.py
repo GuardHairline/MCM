@@ -12,36 +12,56 @@ def setup_logger(log_level=logging.INFO, args=None):
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     log_dir = "log"
 
-    task_name = args.task_name
-    if args.mode == "text_only":
-        mode = "t"
+    task_name = args.task_name if args else "unknown"
+    
+    # 模式简写
+    if args and hasattr(args, 'mode'):
+        mode = "t" if args.mode == "text_only" else "m"
     else:
-        mode = "m"
-    strategy = "none"
-    if args.replay:
-        strategy = "replay"
-        if args.ewc:
-            strategy += "-ewc"
-    if args.ewc and not args.replay:
-        strategy = "ewc"
-    if args.si:
-        strategy = "si"
-    if args.lwf:
-        strategy = "lwf"
-    if args.mas:
-        strategy = "mas"
-    if args.gem:
-        strategy = "gem"
-    if args.pnn:
-        strategy = "pnn"
-    if args.tam_cl:
-        strategy = "tam_cl"
-    if args.moe_adapters:
-        strategy  = "moe_adapters"
-        if args.ddas:
-            strategy += "-ddas"
-    if args.use_label_embedding:
-        strategy += "_label_emb"
+        mode = "u" # unknown
+
+    # =========================================================
+    # 动态生成策略名称
+    # 维护一个 (参数名, 日志缩写) 的列表，按优先级排序
+    # =========================================================
+    method_map = [
+        ('ta_pecl', 'ta_pecl'),       # 新增的方法放前面或后面都可以
+        ('deqa', 'deqa'),
+        ('moe_adapters', 'moe'),
+        ('replay', 'replay'),
+        ('ewc', 'ewc'),
+        ('gem', 'gem'),
+        ('lwf', 'lwf'),
+        ('si', 'si'),
+        ('mas', 'mas'),
+        ('pnn', 'pnn'),
+        ('tam_cl', 'tam'),
+        ('ddas', 'ddas'),
+        ('clap4clip', 'clap'),
+        ('mymethod', 'my'),
+        ('use_label_embedding', 'lbl'),
+        # 在这里添加新方法...
+    ]
+
+    active_strategies = []
+    if args:
+        for arg_name, short_name in method_map:
+            # 检查参数是否存在且为真 (True, 1, 非空对象等)
+            val = getattr(args, arg_name, None)
+            if val:
+                # 特殊处理: 如果是 int 类型的开关，值为 0 则不添加
+                if isinstance(val, int) and val == 0:
+                    continue
+                active_strategies.append(short_name)
+
+    # 如果没有任何策略激活，标记为 none
+    if not active_strategies:
+        strategy = "none"
+    else:
+        # 用下划线连接所有激活的策略，例如 "replay_ewc_lbl"
+        strategy = "_".join(active_strategies)
+
+    # =========================================================
 
     # 新增：根据train_text_file添加数据集标识
     dataset_id = ""
@@ -54,7 +74,15 @@ def setup_logger(log_level=logging.INFO, args=None):
         elif 'mix' in train_file.lower():
             dataset_id = "mix"
 
-    logname = f"{timestamp}-{dataset_id}-{task_name}-{mode}-{strategy}"
+    # 组装最终文件名
+    # 格式: 时间-数据集-任务-模式-策略组合.log
+    parts = [timestamp]
+    if dataset_id: parts.append(dataset_id)
+    parts.append(task_name)
+    parts.append(mode)
+    parts.append(strategy)
+    
+    logname = "-".join(parts)
 
     os.makedirs(log_dir, exist_ok=True)  # 如果没有 log 文件夹，则创建
     log_filename = f"{logname}.log"
@@ -64,6 +92,9 @@ def setup_logger(log_level=logging.INFO, args=None):
     logger = logging.getLogger()
     logger.setLevel(log_level)
 
+    # 清除旧的 handlers 避免重复打印
+    if logger.hasHandlers():
+        logger.handlers.clear()
     # 创建格式：包含时间、日志级别、信息
     formatter = logging.Formatter("[%(asctime)s] %(levelname)s - %(message)s")
 
@@ -77,10 +108,8 @@ def setup_logger(log_level=logging.INFO, args=None):
     file_handler.setLevel(log_level)
     file_handler.setFormatter(formatter)
 
-    # 如果 logger 没有 handler，则添加（避免重复添加多个 handler）
-    if not logger.handlers:
-        logger.addHandler(console_handler)
-        logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
 
     # 输出一下日志文件路径，便于查看
     logger.info(f"Log file is saved to: {log_filepath}")
