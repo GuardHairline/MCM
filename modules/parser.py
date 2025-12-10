@@ -266,7 +266,12 @@ def create_train_parser() -> argparse.ArgumentParser:
     # ========== 任务配置文件参数（用于0样本检测） ==========
     parser.add_argument("--task_config_file", type=str, default=None,
                        help="Task configuration file for zero-shot evaluation")
-    
+    # 可视化参数
+    parser.add_argument("--enable_feature_visualization", type=int, default=1, help="Enable vis")
+    parser.add_argument("--vis_show_predictions", type=int, default=1, help="Vis predictions")
+    parser.add_argument("--vis_max_samples", type=int, default=2000, help="Vis max samples")
+    parser.add_argument("--vis_use_both", type=int, default=0, help="Vis use both")
+    parser.add_argument("--plot_training_curves", type=int, default=1, help="Plot curves")
     return parser
 
 
@@ -287,18 +292,50 @@ def validate_args(args: argparse.Namespace) -> None:
     if args.mode not in valid_modes:
         raise ValueError(f"Invalid mode: {args.mode}. Must be one of {valid_modes}")
     
-    # 检查持续学习策略冲突
-    cl_methods = [args.ewc, args.replay, args.lwf, args.si, args.mas, args.gem, args.pnn, args.tam_cl, args.moe_adapters, args.clap4clip, args.deqa, args.ta_pecl, args.mymethod, getattr(args, 'deqa', 0)]
+    # 确保 cl_methods 和 method_names 一一对应
+    cl_methods = [
+        args.ewc,           # 0
+        args.replay,        # 1
+        args.lwf,           # 2
+        args.si,            # 3
+        args.mas,           # 4
+        args.gem,           # 5
+        args.pnn,           # 6
+        args.tam_cl,        # 7
+        args.moe_adapters,  # 8
+        args.clap4clip,     # 9
+        args.mymethod,      # 10
+        args.deqa, # 11
+        args.ta_pecl        # 12 [新增]
+    ]
+    
+    method_names = [
+        "EWC",              # 0
+        "Replay",           # 1
+        "LwF",              # 2
+        "SI",               # 3
+        "MAS",              # 4
+        "GEM",              # 5
+        "PNN",              # 6
+        "TAM-CL",           # 7
+        "MoE-Adapters",     # 8
+        "CLAP4CLIP",        # 9
+        "MyMethod",         # 10
+        "DEQA",             # 11
+        "TA-PECL"           # 12 [新增]
+    ]
+
+    # 确保两者长度一致
+    assert len(cl_methods) == len(method_names), f"Length mismatch: methods={len(cl_methods)}, names={len(method_names)}"
+
     active_methods = [i for i, method in enumerate(cl_methods) if method]
     
     if len(active_methods) > 1:
-        method_names = ["EWC", "Replay", "LwF", "SI", "MAS", "GEM", "PNN", "TAM-CL", "MoE-Adapters", "CLAP4CLIP", "MyMethod", "DEQA", "TA-PECL"]
         active_names = [method_names[i] for i in active_methods]
         print(f"Warning: Multiple continual learning methods active: {active_names}")
     
-    # 检查标签嵌入参数
     if args.use_label_embedding and args.label_embedding_path is None:
-        args.label_embedding_path = args.label_emb_path  # 使用legacy参数作为fallback
+        args.label_embedding_path = args.label_emb_path
 
 
 def get_default_args() -> Dict[str, Any]:
