@@ -397,10 +397,9 @@ class MATEDatasetDEQA(Dataset):
         description_input_ids, description_attention_mask = self._get_description_encoding(image_name)
         
         return {
-            "input_ids": torch.tensor(encoded["input_ids"], dtype=torch.long),
-            "attention_mask": torch.tensor(encoded["attention_mask"], dtype=torch.long),
-            'token_type_ids': encoded.get('token_type_ids', torch.zeros_like(encoded['input_ids'])).squeeze(0),
-            'image_tensor': image_tensor,
+            "input_ids": input_ids,             # 使用 Tensor 变量
+            "attention_mask": attention_mask,   # 使用 Tensor 变量
+            'token_type_ids': token_type_ids,   # 使用 Tensor 变量
             'description_input_ids': description_input_ids,
             'description_attention_mask': description_attention_mask,
             "labels": torch.tensor(label_ids, dtype=torch.long),
@@ -410,7 +409,7 @@ class MATEDatasetDEQA(Dataset):
         try:
             image = Image.open(image_path).convert('RGB')
             return self.image_transform(image)
-        except Exception as e:
+        except Exception:
             # 容错处理：返回黑图
             return torch.zeros(3, 224, 224)
     
@@ -476,7 +475,7 @@ class MABSADatasetDEQA(Dataset):
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                std=[0.229, 0.224, 0.225])
         ])
-                # 情感映射表: sentiment_val -> base_index
+        # 情感映射表: sentiment_val -> base_index
         # -1(Neg) -> base 0 -> B=1, I=2
         #  0(Neu) -> base 1 -> B=3, I=4
         #  1(Pos) -> base 2 -> B=5, I=6
@@ -569,7 +568,7 @@ class MABSADatasetDEQA(Dataset):
         offsets = encoded["offset_mapping"]
 
         label_ids = []
-        for (start_char, end_char) in offsets:
+        for (start_char, end_char) in offsets[0]: # MABSA returns batch, take [0]:
             if start_char == end_char:
                 label_ids.append(-100)
             else:
@@ -581,14 +580,15 @@ class MABSADatasetDEQA(Dataset):
                         break 
                 label_ids.append(token_label)
 
-        encoded.pop("offset_mapping")
-        # [修复] 显式转换为 Tensor
-        input_ids = torch.tensor(encoded["input_ids"], dtype=torch.long)
-        attention_mask = torch.tensor(encoded["attention_mask"], dtype=torch.long)
-        
-        token_type_ids_list = encoded.get('token_type_ids')
-        if token_type_ids_list is not None:
-            token_type_ids = torch.tensor(token_type_ids_list, dtype=torch.long)
+        input_ids = encoded["input_ids"].squeeze(0)
+
+        attention_mask = encoded["attention_mask"].squeeze(0)
+
+        token_type_ids_ts = encoded.get('token_type_ids')
+
+        if token_type_ids_ts is not None:
+
+            token_type_ids = token_type_ids_ts.squeeze(0)
         else:
             token_type_ids = torch.zeros_like(input_ids)
         # 加载图像
@@ -599,9 +599,9 @@ class MABSADatasetDEQA(Dataset):
         description_input_ids, description_attention_mask = self._get_description_encoding(image_name)
         
         return {
-            "input_ids": torch.tensor(encoded["input_ids"], dtype=torch.long),
-            "attention_mask": torch.tensor(encoded["attention_mask"], dtype=torch.long),
-            'token_type_ids': encoded.get('token_type_ids', torch.zeros_like(encoded['input_ids'])).squeeze(0),
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            'token_type_ids': token_type_ids,
             'image_tensor': image_tensor,
             'description_input_ids': description_input_ids,
             'description_attention_mask': description_attention_mask,
@@ -612,7 +612,7 @@ class MABSADatasetDEQA(Dataset):
         try:
             image = Image.open(image_path).convert('RGB')
             return self.image_transform(image)
-        except Exception as e:
+        except Exception :
             # 容错处理：返回黑图
             return torch.zeros(3, 224, 224)
     
@@ -813,9 +813,9 @@ class MNERDatasetDEQA(Dataset):
         description_input_ids, description_attention_mask = self._get_description_encoding(image_name)
         
         return {
-            "input_ids": torch.tensor(encoded["input_ids"], dtype=torch.long),
-            "attention_mask": torch.tensor(encoded["attention_mask"], dtype=torch.long),
-            'token_type_ids': encoded.get('token_type_ids', torch.zeros_like(encoded['input_ids'])).squeeze(0),
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            'token_type_ids': token_type_ids,
             'image_tensor': image_tensor,
             'description_input_ids': description_input_ids,
             'description_attention_mask': description_attention_mask,
@@ -826,7 +826,7 @@ class MNERDatasetDEQA(Dataset):
         try:
             image = Image.open(image_path).convert('RGB')
             return self.image_transform(image)
-        except Exception as e:
+        except Exception:
             # 容错处理：返回黑图
             return torch.zeros(3, 224, 224)
     
