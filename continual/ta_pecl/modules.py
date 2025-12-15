@@ -48,6 +48,9 @@ class SoftPriorRouter(nn.Module):
         # 3. 模态偏置矩阵 [Num_Modes, Num_Experts]
         self.mode_bias = nn.Parameter(torch.zeros(num_modes, self.num_experts))
         
+        # Learnable scalar for biases to allow dynamic gate to eventually override priors
+        self.bias_scale = nn.Parameter(torch.ones(1))
+        
         # --- 初始化偏置 (注入你的设计思想) ---
         self._initialize_biases(expert_config)
 
@@ -93,8 +96,10 @@ class SoftPriorRouter(nn.Module):
         batch_size = x.shape[0]
         
         # Pooling
+        # Use CLS token (index 0) instead of Mean Pooling
+        # This avoids padding noise and aligns with DeBERTa's classification token
         if x.dim() == 3:
-            x_pooled = x.mean(dim=1)
+            x_pooled = x[:, 0, :] 
         else:
             x_pooled = x
             
@@ -112,7 +117,8 @@ class SoftPriorRouter(nn.Module):
         m_bias = self.mode_bias[mode_id] # [B, E]
         
         # 3. 叠加总分
-        total_logits = dynamic_logits + t_bias + m_bias
+        # Scale the biases so the model can learn to reduce their influence
+        total_logits = dynamic_logits + (t_bias + m_bias) * self.bias_scale
         
         # 训练噪声
         if self.training:
