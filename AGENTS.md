@@ -10,7 +10,7 @@ This is a **multimodal continual learning** research project, focusing on sentim
 - **Multimodal Fusion**: Supports both text-only and text+image modalities
 - **Continual Learning**: Supports multiple continual learning strategies (EWC, Replay, LwF, SI, MAS, GEM, etc.)
 - **Task Types**: Token-level (MATE, MNER, MABSA) and sentence-level (MASC) tasks
-- **Flexible Architecture**: BiLSTM-CRF sequence labeling heads + various continual learning methods
+- **Flexible Architecture**: CRF sequence labeling heads + various continual learning methods
 
 ## Project Structure & Config Generation
 
@@ -34,9 +34,9 @@ MCM/
 │   └── train_utils.py        # Training utility functions
 ├── models/                    # Model definitions
 │   ├── task_heads/           # Task-specific heads
-│   │   ├── mate_head_bilstm.py    # MATE BiLSTM-CRF head
-│   │   ├── mner_head_bilstm.py    # MNER BiLSTM-CRF head
-│   │   ├── mabsa_head_bilstm.py   # MABSA BiLSTM-CRF head
+│   │   ├── mate_head.py    # MATE CRF head
+│   │   ├── mner_head.py    # MNER CRF head
+│   │   ├── mabsa_head.py   # MABSA CRF head
 │   │   ├── masc_head.py           # MASC classification head
 │   │   └── get_head.py            # Task head factory function
 │   ├── base_model.py         # Base multimodal model
@@ -265,7 +265,7 @@ cd scripts/configs/all_task
 
 ### 5. Kaggle Free GPU
 **Purpose**: Leverage Kaggle free GPU resources (12-hour limit)
-- **Reference**: `scripts/configs/kaggle_ablation/` and `scripts/configs/kaggle_bilstm_test/`
+- **Reference**: `scripts/configs/kaggle_ablation/` 
 - **Limitation**: Each run <9-12 hours, need to split experiments
 - **Workflow**:
   1. Upload project as Kaggle dataset
@@ -375,14 +375,9 @@ cat checkpoints/train_info_*.json
    - Dev Loss vs Epochs
    - Span F1 vs Epochs
 
-### Manual Analysis Scripts
-```bash
-# Analyze BiLSTM test results
-python scripts/configs/kaggle_bilstm_test/analyze_bilstm_results.py <results_dir>
-```
 
 ## Commit & Pull Request Guidelines
-- **Commit Format**: Concise imperatives (e.g., `Add BiLSTM support`, `Fix CRF mask bug`)
+- **Commit Format**: Concise imperatives (e.g., `Add CRF support`, `Fix CRF mask bug`)
 - **Description**: Reference affected modules (e.g., "touches `continual/label_embedding.py`")
 - **Links**: Associate related issues or experiment IDs
 - **Commands**: Include complete run commands
@@ -390,10 +385,9 @@ python scripts/configs/kaggle_bilstm_test/analyze_bilstm_results.py <results_dir
 - **Data**: Explain data/checkpoint updates, list configs needed for reproduction
 
 ### Recent Important Commits
-- `BiLSTM-CRF integration`: Integrated BiLSTM-CRF sequence labeling heads
+- `CRF integration`: Integrated CRF sequence labeling heads
 - `Add best dev metric tracking`: Track best dev metrics and epoch
 - `Fix training curves visualization`: Fixed training curve plotting
-- `Kaggle BiLSTM test configs`: Added Kaggle BiLSTM test configs
 
 ## Security & Configuration Tips
 - **Paths**: Use paths relative to repo root
