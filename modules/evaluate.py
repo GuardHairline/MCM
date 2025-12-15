@@ -25,6 +25,12 @@ def evaluate_single_task(model, task_name, split, device, args):
     对指定任务的 {split} (dev/test) 数据集进行评估，返回准确率(%)。
     """
     # 确保使用正确的任务头（使用非严格模式）
+    # 切换 TA-PECL 的路由状态
+    # 确保 Router 知道现在是在跑哪个任务，而不是沿用训练时的状态
+    if hasattr(model, 'base_model') and hasattr(model.base_model, 'set_task_name'):
+        # 注意：args.mode 必须正确传递
+        model.base_model.set_task_name(task_name, args.mode)
+
     if hasattr(model, 'set_active_head') and hasattr(args, 'session_name'):
         try:
             # 使用strict=False允许失败时继续
