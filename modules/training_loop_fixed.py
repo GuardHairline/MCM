@@ -619,8 +619,8 @@ def validate_epoch(model, val_loader, device, args, logger=None):
                             if preds.dim() > 1:
                                 pred_seq = preds[i][valid_mask].cpu().tolist()
                             else:
-                                pred_seq = preds.cpu().tolist()
-                            # 解码span（0=O，1/2=B/I-PER，3/4=B/I-ORG，5/6=B/I-LOC，7/8=B/I-MISC）
+                                # Fix: For classification tasks, only take the prediction for the current sample i
+                                pred_seq = [preds[i].item()]                            # 解码span（0=O，1/2=B/I-PER，3/4=B/I-ORG，5/6=B/I-LOC，7/8=B/I-MISC）
                             if args.task_name == "mner":
                                 pred_span = list(decode_mner(pred_seq))
                                 gold_span = list(decode_mner(gold_seq))
